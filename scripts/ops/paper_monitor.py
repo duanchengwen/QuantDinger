@@ -31,6 +31,7 @@ connection = psycopg2.connect(get_database_url(), connect_timeout=5,
     options='-c statement_timeout=10000 -c lock_timeout=1000 -c application_name=paper_readonly_monitor')
 connection.set_session(readonly=True, isolation_level='REPEATABLE READ')
 accounts, observations, reports, receipts = [], [], [], []
+theme_receipts = []
 def evidence_check(path_value, expected):
     try:
         path = Path(path_value).resolve()
@@ -77,13 +78,31 @@ with connection, connection.cursor(cursor_factory=RealDictCursor) as cursor:
             receipt['raw_evidence_status'] = evidence_check(receipt.pop('evidence_path'), receipt['source_hash'])
             receipt['known_at_semantics'] = 'received_at_not_original_publication_time'
             receipts.append(receipt)
+    cursor.execute("SELECT to_regclass('qd_ashare_theme_receipts') IS NOT NULL AS present")
+    if cursor.fetchone()['present']:
+        cursor.execute("""SELECT DISTINCT ON (board_code) id,board_code,board_name,received_at,
+            source_hash,member_count,provider_total,excluded_count
+            FROM qd_ashare_theme_receipts ORDER BY board_code,received_at DESC,id DESC LIMIT 10""")
+        theme_receipts = [dict(row) for row in cursor.fetchall()]
+if theme_receipts:
+    from app.ashare.themes import ThemeStore
+    for receipt in theme_receipts:
+        try:
+            verified = ThemeStore(connection).snapshot(receipt['board_code'], known_at=receipt['received_at'], limit=1)
+            if verified.get('receipt_id') != receipt['id'] or verified.get('source_hash') != receipt['source_hash']:
+                raise ValueError('theme_monitor_receipt_mismatch')
+            receipt['evidence_status'] = 'verified'
+        except (ValueError, OSError):
+            receipt['evidence_status'] = 'invalid_or_unavailable'
+        receipt['known_at_semantics'] = 'current_members_observed_at_receipt_not_historical_backfill'
 connection.close()
 safe_flags={key:os.getenv(key,'').lower()=='false' for key in ('LIVE_TRADING_ENABLED','AGENT_LIVE_TRADING_ENABLED','AI_AUTO_PROMOTION_ENABLED')}
 print(json.dumps({'observed_at':now.isoformat(),'session':market_session(now),
     'heartbeats':heartbeats,'accounts':accounts,'observations':observations,
     'daily_reports':reports,'safety_flags_disabled':safe_flags,
     'data_free_bytes':shutil.disk_usage('/app/data').free,
-    'reference_schema_present':reference_schema_present,'reference_receipts':receipts},default=str))
+    'reference_schema_present':reference_schema_present,'reference_receipts':receipts,
+    'theme_receipts':theme_receipts},default=str))
 '''
 
 
@@ -214,6 +233,15 @@ def assess(payload, backup, *, target_days=5):
                 issues.append('security_reference_received_at_in_future')
         except (ValueError, TypeError, KeyError):
             issues.append('security_reference_received_at_invalid')
+    theme_receipts = payload.get('theme_receipts', [])
+    for receipt in theme_receipts:
+        if receipt.get('evidence_status') != 'verified':
+            issues.append('theme_reference_evidence_unverified')
+        try:
+            if timestamp(receipt['received_at']) > now:
+                issues.append('theme_reference_received_at_in_future')
+        except (ValueError, TypeError, KeyError):
+            issues.append('theme_reference_received_at_invalid')
     # Count dates carrying real-clock samples; never count controlled replay.
     days = sorted({row['trading_day'] for row in payload['observations']
                    if row['wall_clock_polls'] > 0 and row.get('is_trading_day') is True})
@@ -234,6 +262,7 @@ def assess(payload, backup, *, target_days=5):
             'data_free_bytes': payload.get('data_free_bytes'),
             'reference_schema_present': payload.get('reference_schema_present', False),
             'reference_receipts': receipts,
+            'theme_receipts': theme_receipts,
             'accounts': payload['accounts'], 'observations': payload['observations'],
             'containers': payload['containers'], 'safety_flags_disabled': payload['safety_flags_disabled']}
 

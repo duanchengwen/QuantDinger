@@ -49,3 +49,7 @@ git config branch.ashare-paper.pushRemote origin
 官方已有 CNStock paper 路径，但当前虚拟账户算法不能直接验收为完整 A 股现金模拟券商。后端 Apache-2.0 不代表前端采用相同许可；前端独立仓库的许可、商标和归属要求需单独遵守。未来真实券商适配需要另行授权和验收；统一接口能减少迁移工作，但不能保证模拟成交与真实成交完全一致。
 
 最新版本：[本轮验收](SECURITIES_ACCEPTANCE_CN.md) · [个人使用教程](USER_GUIDE_CN.md) · [实际待办](backlog.json)。
+
+主题数据：[当前成分与时间追溯](THEMES_CN.md)。
+
+主题归档最新结果：[本轮验收](THEMES_ACCEPTANCE_CN.md)。

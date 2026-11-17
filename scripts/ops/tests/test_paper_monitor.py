@@ -107,6 +107,24 @@ class MonitorTests(unittest.TestCase):
         self.assertIn('backup_volume_capacity_low', report['issues'])
         self.assertIn('security_reference_received_at_in_future', report['issues'])
 
+    def test_theme_evidence_failure_is_reported_even_when_market_is_closed(self):
+        value = payload()
+        value['session'] = {'can_match': False, 'state': 'closed'}
+        value['theme_receipts'] = [{'received_at': '2026-11-17T10:00:01+08:00',
+                                    'evidence_status': 'invalid'}]
+        report = self.report(value)
+        self.assertIn('theme_reference_evidence_unverified', report['issues'])
+        self.assertIn('theme_reference_received_at_in_future', report['issues'])
+
+    def test_verified_theme_observation_does_not_complete_historical_backlog(self):
+        value = payload()
+        value['theme_receipts'] = [{'received_at': '2026-11-17T09:00:00+08:00',
+                                    'evidence_status': 'verified', 'board_code': 'BK0001'}]
+        report = self.report(value)
+        self.assertEqual(report['issues'], [])
+        self.assertEqual(report['theme_receipts'], value['theme_receipts'])
+        self.assertFalse(report['completed_backlog'])
+
     def test_deduplicates_continuous_failure_signals(self):
         value = payload()
         value['accounts'][0]['quotes'] *= 2

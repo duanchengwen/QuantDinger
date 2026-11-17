@@ -196,7 +196,8 @@ def verify_backup(source):
 def wait_database(container, deadline=60):
     end = time.monotonic() + deadline
     while time.monotonic() < end:
-        result = subprocess.run(['docker', 'exec', container, 'pg_isready', '-U', 'paper', '-d', 'paper'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        # The image's temporary initialization server is socket-only and restarts.
+        result = subprocess.run(['docker', 'exec', container, 'pg_isready', '-h', '127.0.0.1', '-U', 'paper', '-d', 'paper'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
         if result.returncode == 0:
             return
         time.sleep(1)

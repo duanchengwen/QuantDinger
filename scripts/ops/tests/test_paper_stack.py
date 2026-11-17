@@ -17,6 +17,19 @@ spec.loader.exec_module(ops)
 
 
 class PaperStackTests(unittest.TestCase):
+    def test_restore_waits_past_socket_only_initialization_server(self):
+        probes = []
+
+        def readiness(command, **kwargs):
+            probes.append(command)
+            # The image's temporary bootstrap server accepts Unix sockets only.
+            tcp = '-h' in command and command[command.index('-h') + 1] == '127.0.0.1'
+            return SimpleNamespace(returncode=1 if tcp and len(probes) == 1 else 0)
+
+        with patch.object(ops.subprocess, 'run', side_effect=readiness), patch.object(ops.time, 'sleep'):
+            ops.wait_database('isolated-fixture')
+        self.assertEqual(len(probes), 2)
+
     def bundle(self, root, unsafe=False):
         root.mkdir()
         for name in ('database.dump', 'config.env', 'ledger.json'):

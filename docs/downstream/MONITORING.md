@@ -39,3 +39,5 @@ The default sample-date target is five natural trading days; `--target-days` cha
 Daily rules remain human-approved. Corporate actions, point-in-time datasets, industry news/recommendations, strategy research, Windows and CI work require separate acceptance. Future strategy changes require human approval. `completed_backlog=false` prevents a healthy daemon from silently marking all work complete.
 
 A recurring follow-up in this chat can invoke the command and remain quiet unless there is a new actionable fault, recovery, acceptance milestone or required user action. Host shutdown/sleep or an inactive scheduler prevents observation; this is not a zero-interruption guarantee. The script creates no system timer itself.
+
+When theme snapshots are deployed, monitoring validates the latest observation for up to ten boards: manifest, every original page and database membership are rechecked, and knowledge time must not be in the future. Valid membership evidence neither completes historical coverage nor authorizes trading.

@@ -49,3 +49,7 @@ Retain upstream accounts, research UI, persistence, tenancy and job infrastructu
 Upstream has a genuine CNStock paper path, but its current virtual-account algorithm does not meet complete A-share cash-broker acceptance. Backend Apache-2.0 licensing does not cover the separately licensed frontend; review its license, trademark and attribution obligations. Future real-broker integration requires separate authorization and acceptance. Shared interfaces reduce migration work but cannot make simulated and real fills identical.
 
 Current increment: [acceptance](SECURITIES_ACCEPTANCE.md) · [personal user guide](USER_GUIDE.md) · [actual backlog](backlog.json).
+
+Theme data: [current membership and time provenance](THEMES.md).
+
+Latest theme archive result: [acceptance](THEMES_ACCEPTANCE.md).

@@ -45,8 +45,8 @@
     },
     {
       "id": "reliable_theme_membership",
-      "status": "pending",
-      "acceptance": "AKShare current-theme adapters identified; one public directory probe returned total554 but only100 rows. Complete bounded pagination and dated evidence still pending. No current constituent backfill; publication time unknown, knowledge time must be receipt time."
+      "status": "partial_real_current_observation",
+      "acceptance": "Real BK0800 人工智能 receipt at 2026-11-17T14:08:51Z: 758 provider members, 730 supported SH/SZ, 28 excluded; 16 raw pages and full DB membership verified. Append-only knowledge-time queries reject pre-receipt history. No historical backfill. Other themes, preference mapping, UI and scheduling remain pending; see THEMES_ACCEPTANCE_CN.md."
     },
     {
       "id": "scheduled_news_ingestion",

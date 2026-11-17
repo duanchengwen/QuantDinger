@@ -58,3 +58,5 @@ Selecting industries, collecting news, recommending stocks, automatically paper-
 Natural multi-session validation requires actual elapsed trading days. The [monitor](MONITORING.md) records sampled dates, failures and pending acceptance; synthetic replay cannot complete that evidence or all remaining work.
 
 News time semantics: the official research collector preserves the provider-reported publication value, leaves missing values empty, and records receipt time separately in UTC. Reports exclude news with missing or unparseable publication times from evidence instead of treating receipt time as freshness. Search dates are not publisher verification; scheduled A-share original-document archiving and hash provenance remain unfinished.
+
+The backend now supports [current theme archives](THEMES.md), with one actual AI-theme receipt. It does not change watchlists or place orders. UI theme choices remain preferences; scheduled news and automatic research still require integration.
