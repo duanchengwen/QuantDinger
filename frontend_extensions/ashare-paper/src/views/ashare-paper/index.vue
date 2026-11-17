@@ -38,7 +38,7 @@
     <div class="paper-workspace">
       <a-card :title="t('order')">
         <a-form layout="vertical" @submit.prevent="confirmOrder">
-          <a-form-item :label="t('symbol')"><a-select v-model="order.symbol" @change="orderChanged"><a-select-option v-for="symbol in symbols" :key="symbol" :value="symbol">{{ symbol }}</a-select-option></a-select></a-form-item>
+          <a-form-item :label="t('symbol')"><a-select v-model="order.symbol" @change="orderChanged"><a-select-option v-for="symbol in symbols" :key="symbol" :value="symbol">{{ symbolLabel(symbol) }}</a-select-option></a-select></a-form-item>
           <a-form-item :label="t('side')"><a-radio-group v-model="order.side" button-style="solid" @change="orderChanged"><a-radio-button value="buy">{{ t('buy') }}</a-radio-button><a-radio-button value="sell">{{ t('sell') }}</a-radio-button></a-radio-group></a-form-item>
           <div class="paper-pair"><a-form-item :label="t('quantity')"><a-input-number v-model="order.quantity" :min="100" :step="100" :precision="0" @change="orderChanged" /></a-form-item><a-form-item :label="t('price')"><a-input-number v-model="order.limit_price" :min="0.01" :step="0.01" :precision="2" @change="orderChanged" /></a-form-item></div>
           <p class="paper-muted">{{ t('orderHelp') }}</p>
@@ -53,7 +53,7 @@
         </a-form>
       </a-card>
       <a-card :title="t('positions')">
-        <a-table :columns="positionColumns" :data-source="state.positions || []" :row-key="row => row.symbol + row.acquired_day" size="small" :pagination="{ pageSize: 8 }">
+        <a-table :columns="positionColumns" :data-source="namedPositions" :row-key="row => row.symbol + row.acquired_day" size="small" :pagination="{ pageSize: 8 }">
           <template slot="emptyText">{{ t('noData') }}</template>
         </a-table>
       </a-card>
@@ -152,12 +152,75 @@
             <a-button :disabled="!themeNext || themeView.snapshotLoading || themeView.catalogLoading" @click="pageTheme(1)">{{ t('next') }}</a-button>
           </div>
         </a-tab-pane>
+        <a-tab-pane key="research" :tab="t('researchTab')">
+          <a-alert type="info" show-icon :message="t('researchOnly')" :description="t('researchHelp')" class="paper-alert" />
+          <p class="paper-muted">{{ t('researchSavedTopics') }}: {{ savedResearchTopics || t('researchNoTopics') }}</p>
+          <div class="paper-theme-controls">
+            <a-button :loading="researchView.loading" @click="refreshResearch">{{ t('researchRefresh') }}</a-button>
+            <a-button type="primary" :loading="researchView.submitting" :disabled="readOnly || !state.account || !researchReady" @click="generateResearch">{{ t(researchView.retryPending ? 'researchRetry' : 'researchGenerate') }}</a-button>
+            <small>{{ t('researchCost') }}</small>
+          </div>
+          <a-alert v-if="researchView.error || researchView.submitError" type="error" show-icon :message="researchView.error || researchView.submitError" class="paper-alert" />
+          <a-alert v-if="researchView.status && !researchView.status.model_configured && researchView.status.configuration_error !== 'model_not_supported' && researchView.status.blocked_reason !== 'model_not_supported'" type="warning" show-icon :message="t('researchState.needs_model_configuration')" class="paper-alert" />
+          <a-alert v-if="researchView.status && (researchView.status.configuration_error === 'model_not_supported' || researchView.status.blocked_reason === 'model_not_supported')" type="warning" show-icon :message="t('researchModelUnsupported')" class="paper-alert" />
+          <p v-if="researchView.pollExhausted" role="status" class="paper-muted">{{ t('researchPollStopped') }}</p>
+          <div class="paper-research-grid">
+            <section class="paper-research-news">
+              <h3>{{ t('researchNews') }}</h3>
+              <p class="paper-muted">{{ t('researchNewsCoverage') }}</p>
+              <p v-if="!researchView.loading && !researchView.error && !researchView.news.length" class="paper-muted">{{ t('researchNoNews') }}</p>
+              <article v-for="item in researchView.news" :key="item.id" class="paper-research-item">
+                <h4><a v-if="newsUrl(item.source_url)" :href="newsUrl(item.source_url)" target="_blank" rel="noopener noreferrer">{{ item.title }}</a><span v-else>{{ item.title }}</span></h4>
+                <p>{{ item.source || t('unknown') }} · {{ newsType(item.content_kind) }}</p>
+                <p>{{ t('researchPublished') }}: {{ formatTime(item.published_at) }}<br>{{ t('received') }}: {{ formatTime(item.received_at) }}</p>
+                <small>{{ t('researchNewsId') }}: {{ item.id }}<br>{{ t('researchSourceHash') }}: <code>{{ item.source_hash }}</code><template v-if="item.pdf_hash"><br>{{ t('researchPdfHash') }}: <code>{{ item.pdf_hash }}</code></template></small>
+              </article>
+            </section>
+            <section class="paper-research-results">
+              <h3>{{ t('researchRuns') }}</h3>
+              <a-select
+                :value="researchView.selectedId || undefined"
+                :placeholder="t('researchSelect')"
+                :aria-label="t('researchSelect')"
+                :disabled="researchView.loading || !researchView.runs.length"
+                class="paper-research-select"
+                @change="selectResearch">
+                <a-select-option v-for="run in researchView.runs" :key="run.id" :value="run.id">{{ formatTime(run.created_at) }} · {{ t('researchState.' + run.status) }}</a-select-option>
+              </a-select>
+              <p v-if="!researchView.loading && !researchView.error && !researchView.runs.length" class="paper-muted">{{ t('researchNoRuns') }}</p>
+              <p v-if="researchView.loading || researchView.detailLoading" class="paper-muted" role="status">{{ t('researchLoading') }}</p>
+              <a-alert v-if="researchView.detailError" type="error" :message="researchView.detailError" class="paper-alert" />
+              <article v-if="researchView.detail" class="paper-research-detail">
+                <a-tag color="orange">{{ t('researchOnly') }}</a-tag>
+                <p role="status">{{ t('researchState.' + researchView.detail.status) }}</p>
+                <p v-if="researchView.detail.error_code" class="paper-muted">{{ researchReason(researchView.detail.error_code) }}</p>
+                <p v-if="researchView.detail.status === 'failed'" class="paper-muted">{{ t('researchRunFailed') }}</p>
+                <template v-if="researchView.detail.status === 'completed'">
+                  <p>{{ researchView.detail.summary }}</p>
+                  <p v-if="!researchView.detail.candidates.length" class="paper-muted">{{ t('researchNoCandidates') }}</p>
+                  <section v-for="candidate in researchView.detail.candidates" :key="candidate.symbol" class="paper-research-item">
+                    <h4>{{ candidate.symbol }} · {{ candidate.name }}</h4>
+                    <p>{{ candidate.rationale }}</p>
+                    <p class="paper-muted">{{ researchEvidence(candidate.evidence_scope) }}</p>
+                    <p>{{ t('researchEvidenceIds') }}: {{ (candidate.evidence_news_ids || []).join(', ') || '—' }}</p>
+                    <strong>{{ t('researchRisks') }}</strong>
+                    <ul><li v-for="(risk, index) in candidate.risks" :key="index">{{ risk }}</li></ul>
+                  </section>
+                  <template v-if="researchView.detail.risks.length"><h4>{{ t('researchRisks') }}</h4><ul><li v-for="(risk, index) in researchView.detail.risks" :key="index">{{ risk }}</li></ul></template>
+                </template>
+                <p class="paper-muted">{{ t('researchRunId') }}: {{ researchView.detail.id }}<br>{{ t('researchCreated') }}: {{ formatTime(researchView.detail.created_at) }}<br>{{ t('researchCompleted') }}: {{ formatTime(researchView.detail.completed_at) }}</p>
+                <small>{{ t('researchInputHash') }}: <code>{{ researchView.detail.input_hash || '—' }}</code><br>{{ t('researchOutputHash') }}: <code>{{ researchView.detail.output_hash || '—' }}</code></small>
+              </article>
+            </section>
+          </div>
+        </a-tab-pane>
         <a-tab-pane key="settings" :tab="t('settings')">
           <h3>{{ t('researchPreferences') }}</h3>
           <p class="paper-muted">{{ t('researchPreferencesHelp') }}</p>
           <a-checkbox-group v-model="researchPreferences.topics" :disabled="readOnly"><a-checkbox v-for="topic in ['ai', 'robotics', 'new_energy', 'semiconductors']" :key="topic" :value="topic">{{ t('topic.' + topic) }}</a-checkbox></a-checkbox-group>
           <p><a-checkbox v-model="researchPreferences.follow_current_events" :disabled="readOnly">{{ t('followCurrentEvents') }}</a-checkbox></p>
           <a-form-item :label="t('customTopics')"><a-input v-model="researchPreferences.custom_topics" :max-length="240" :disabled="readOnly" /></a-form-item>
+          <ul class="paper-saved-symbols"><li v-for="symbol in symbols" :key="symbol">{{ symbolLabel(symbol) }}</li></ul>
           <a-form layout="vertical" @submit.prevent="saveSettings"><a-form-item :label="t('symbols')"><a-input v-model="settingsSymbols" placeholder="sz.000001,sh.600000" /></a-form-item><a-form-item :label="t('interval')"><a-input-number v-model="settingsInterval" :min="2" :max="3600" /></a-form-item><a-button html-type="submit" :disabled="readOnly || !state.account" :loading="busy">{{ t('save') }}</a-button></a-form>
         </a-tab-pane>
         <a-tab-pane key="feishu" :tab="t('feishu')">
@@ -209,6 +272,7 @@
 import { paperRequest } from '@/api/asharePaper'
 import { ageSeconds, quoteIsFresh, shanghaiDate, ruleIsReady, roleIsViewer } from './state.mjs'
 import { createThemeState, createThemeBrowser, themeMembers, themeHasNext, themePageRange } from './theme-state.mjs'
+import { createResearchState, createResearchBrowser, researchCanGenerate, safeNewsUrl, researchEvidenceKey, researchReasonKey } from './research-state.mjs'
 
 const emptyState = () => ({ account: null, quotes: [], orders: [], positions: [], fills: [], rules: {}, settings: {}, worker: {}, notifications: {} })
 export default {
@@ -250,10 +314,14 @@ reportsError: '',
       universeLoading: false,
       universeError: '',
       themeView: createThemeState(),
-      themeController: null
+      themeController: null,
+      researchView: createResearchState(),
+      researchController: null
 }
   },
   computed: {
+    researchReady () { return researchCanGenerate(this.researchView) },
+    savedResearchTopics () { return ((this.state.settings.research_preferences || {}).topics || []).map(topic => this.t('topic.' + topic)).join(' / ') },
     themeRows () { return themeMembers(this.themeView) },
     themeNext () { return themeHasNext(this.themeView) },
     themeRange () { return themePageRange(this.themeView) },
@@ -270,7 +338,8 @@ reportsError: '',
     canOrder () { const q = this.state.quotes.find(q => q.symbol === this.order.symbol); return !this.readOnly && !!this.state.account && !this.error && this.workerFresh && this.quoteFresh(q) && this.ruleReady(this.order.symbol) && this.order.quantity > 0 && this.order.quantity % 100 === 0 && Number(this.order.limit_price) > 0 },
     botConfigured () { return !!(this.state.notifications && this.state.notifications.configured) },
     quoteColumns () { return [{ title: this.t('symbol'), dataIndex: 'symbol', scopedSlots: { customRender: 'symbol' } }, { title: this.t('last'), dataIndex: 'last' }, { title: this.t('bid'), key: 'bid', scopedSlots: { customRender: 'depthBid' } }, { title: this.t('ask'), key: 'ask', scopedSlots: { customRender: 'depthAsk' } }, { title: this.t('time'), key: 'time', scopedSlots: { customRender: 'time' } }, { title: this.t('status'), key: 'quality', scopedSlots: { customRender: 'quality' } }, { title: this.t('rules'), key: 'rules', scopedSlots: { customRender: 'rules' } }] },
-    positionColumns () { return this.columns(['symbol', 'quantity', 'acquired_day']) },
+    namedPositions () { return (this.state.positions || []).map(position => ({ ...position, name: this.symbolName(position.symbol) })) },
+    positionColumns () { return this.columns(['symbol', 'name', 'quantity', 'acquired_day']) },
     orderColumns () { return [...this.columns(['id', 'symbol', 'side', 'quantity', 'filled', 'limit_price', 'status']), { title: this.t('action'), key: 'cancel', scopedSlots: { customRender: 'cancel' } }] },
     historyTruncated () { return Object.values((this.state.history || {}).truncated || {}).some(Boolean) },
     reportRows () { return this.reports.map(item => ({ ...item.report, trading_day: item.trading_day, generated_at: item.generated_at, reconciliation_ok: item.report.reconciliation && item.report.reconciliation.ok, observation: item.report.observation_summary && item.report.observation_summary.poll_count != null ? `${item.report.observation_summary.wall_clock_polls} / ${item.report.observation_summary.controlled_time_polls}` : '—' })) },
@@ -289,9 +358,9 @@ reportsError: '',
 },
     fillColumns () { return this.columns(['order_id', 'symbol', 'side', 'quantity', 'price', 'fee', 'exchange_time']) }
   },
-  created () { this.themeController = createThemeBrowser(this.themeView, paperRequest, error => this.themeErrorMessage(error)) },
-  mounted () { this.clock = setInterval(() => { this.now = Date.now() }, 1000); this.poll() },
-  beforeDestroy () { this.themeController.dispose(); this.stopped = true; clearTimeout(this.timer); clearInterval(this.clock) },
+  created () { this.themeController = createThemeBrowser(this.themeView, paperRequest, error => this.themeErrorMessage(error)); this.researchController = createResearchBrowser(this.researchView, paperRequest, error => this.researchErrorMessage(error)) },
+  mounted () { document.addEventListener('visibilitychange', this.syncResearchVisibility); this.clock = setInterval(() => { this.now = Date.now() }, 1000); this.poll() },
+  beforeDestroy () { document.removeEventListener('visibilitychange', this.syncResearchVisibility); this.researchController.dispose(); this.themeController.dispose(); this.stopped = true; clearTimeout(this.timer); clearInterval(this.clock) },
   methods: {
     t (key, values) { return this.$t('ashare.' + key, values) },
     errorMessage (err) { const message = (err.response && err.response.data && err.response.data.msg) || err.message || this.t('error'); const keys = { auth_service_unavailable: 'service', paper_database_unavailable: 'service', paper_database_not_configured: 'service', paper_worker_stale: 'worker', paper_worker_not_healthy: 'worker', outside_continuous_auction: 'session', not_trading_day: 'session', fresh_quote_required: 'quote', 'stale quote': 'quote', 'insufficient available cash': 'cash', 'insufficient T+1 available shares': 'shares' }; return keys[message] ? this.t('error.' + keys[message]) : message },
@@ -302,12 +371,23 @@ reportsError: '',
     quoteFresh (quote) { return quoteIsFresh(quote, this.now) },
     today () { return shanghaiDate(this.now) },
     ruleReady (symbol) { return ruleIsReady((this.state.rules || {})[symbol], this.now) },
-    onTabChange (key) { if (key === 'reports') this.loadReports(); if (key === 'universe' && !this.universeResult) this.loadUniverse(); if (key === 'themes') this.themeController.ensureLoaded() },
+    onTabChange (key) { this.researchController.setActive(key === 'research' && !document.hidden); if (key === 'reports') this.loadReports(); if (key === 'universe' && !this.universeResult) this.loadUniverse(); if (key === 'themes') this.themeController.ensureLoaded() },
+    syncResearchVisibility () { this.researchController.setActive(this.activeTab === 'research' && !document.hidden) },
+    refreshResearch () { return this.researchController.refresh() },
+    selectResearch (id) { return this.researchController.select(id) },
+    generateResearch () { if (!this.readOnly && this.state.account) return this.researchController.generate() },
+    researchReason (code) { return this.t(researchReasonKey(code)) },
+    researchEvidence (scope) { return this.t(researchEvidenceKey(scope)) },
+    newsUrl (value) { return safeNewsUrl(value) },
+    newsType (value) { return this.t('researchNewsType.' + (['news', 'announcement', 'announcement_title'].includes(value) ? value : 'other')) },
+    researchErrorMessage (error) { const response = error.response || {}; if (response.status === 401) return this.t('researchSessionError'); return this.t('researchLoadFailed') },
     themeErrorMessage (error) { const response = error.response || {}; const message = (response.data && response.data.msg) || error.message || ''; if (response.status === 401) return this.t('themeSessionError'); if (/evidence|hash_mismatch/.test(message)) return this.t('themeEvidenceError'); if (response.status === 503 || /database_unavailable|database_not_configured|auth_service_unavailable/.test(message)) return this.t('error.service'); return this.t('themeLoadFailed') },
     refreshThemes () { return this.themeController.refresh() },
     selectTheme (board) { return this.themeController.select(board) },
     pageTheme (direction) { return this.themeController.page(direction) },
-    showFeishu () { this.activeTab = 'feishu'; this.$nextTick(() => { const element = this.$refs.feishuSettings; if (element) element.scrollIntoView({ behavior: 'smooth', block: 'start' }) }) },
+    showFeishu () { this.activeTab = 'feishu'; this.researchController.setActive(false); this.$nextTick(() => { const element = this.$refs.feishuSettings; if (element) element.scrollIntoView({ behavior: 'smooth', block: 'start' }) }) },
+    symbolName (symbol) { const quote = (this.state.quotes || []).find(row => row.symbol === symbol); return quote && typeof quote.name === 'string' && quote.name.trim() ? quote.name.trim() : this.t('nameUnavailable') },
+    symbolLabel (symbol) { return symbol + ' · ' + this.symbolName(symbol) },
     statusLabel (value) { return value == null ? this.t('unknownNeedsReview') : value ? this.t('yes') : this.t('no') },
     async openBatchReview () { if (this.suggestionsLoading) return; this.suggestionsLoading = true; try { const result = await paperRequest('/rules/suggestions'); this.batchDay = result.trading_day; this.reviewRows = result.rows.map(row => ({ ...row, confirmed: false })); this.batchEvidence = ''; this.batchVisible = true } catch (err) { this.error = this.errorMessage(err) } finally { this.suggestionsLoading = false } },
     async saveBatchReview () { if (!this.batchCanSave) return; const rules = this.reviewRows.filter(row => row.confirmed && row.blockers.length === 0).map(row => ({ symbol: row.symbol, trading_day: this.batchDay, suspended: false, st: false, limit_up: String(row.limit_up), limit_down: String(row.limit_down), evidence: this.batchEvidence.trim() })); try { await this.mutate('/rules/review-batch', 'post', { confirmed: true, rules }, this.t('saved')); this.batchVisible = false } catch (_) {} },
@@ -360,6 +440,23 @@ reportsError: '',
 .paper-theme-evidence h3 { color: var(--qd-text); }
 .paper-theme-evidence p, .paper-theme-pagination { color: var(--qd-text-secondary); }
 .paper-theme-pagination { margin-top: 16px; }
+.paper-saved-symbols { padding-left: 20px; color: var(--qd-text-secondary); line-height: 1.8; }
+.paper-research-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 28px; margin-top: 24px; }
+.ashare-paper .paper-research-grid,
+.ashare-paper .paper-research-grid p,
+.ashare-paper .paper-research-grid h3,
+.ashare-paper .paper-research-grid h4,
+.ashare-paper .paper-research-grid ul,
+.ashare-paper .paper-research-grid li,
+.ashare-paper .paper-research-grid strong { color: var(--qd-text); }
+.ashare-paper .paper-research-grid .paper-muted,
+.ashare-paper .paper-research-grid small { color: var(--qd-text-secondary); }
+.paper-research-item { padding: 12px 0; border-bottom: 1px solid var(--qd-border); overflow-wrap: anywhere; }
+.paper-research-item p { margin-bottom: 8px; }
+.paper-research-select { width: 100%; margin-bottom: 16px; }
+.paper-research-detail { overflow-wrap: anywhere; }
+.paper-research-news, .paper-research-results { min-width: 0; }
+@media (max-width: 900px) { .paper-research-grid { grid-template-columns: 1fr; } }
 .paper-steps { list-style: none; padding: 0; line-height: 2; }
 small { font-size: 12px; color: var(--qd-text-secondary); }
 @media (max-width: 900px) { .paper-metrics { grid-template-columns: repeat(2, 1fr); } .paper-workspace { grid-template-columns: 1fr; } .paper-heading { flex-wrap: wrap; } .paper-health { text-align: left; } .paper-health button { margin-left: 0; } }

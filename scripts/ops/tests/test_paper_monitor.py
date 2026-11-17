@@ -1,5 +1,8 @@
 """Monitor evidence must not overstate natural observations or quiet failures."""
 import copy
+import io
+from contextlib import redirect_stdout
+from datetime import datetime, timezone
 import importlib.util
 import json
 import sys
@@ -289,6 +292,183 @@ class MonitorTests(unittest.TestCase):
             self.assertEqual(report['pending_backlog_ids'], ['natural_days'])
             self.assertFalse(report['completed_backlog'])
             self.assertNotEqual(fingerprint, monitor.significant_fingerprint(report))
+
+
+    def research_payload(self, name='work', status='idle', stamp='2026-11-17T09:59:00+08:00'):
+        value = payload()
+        value['research_' + name + '_job'] = {'LoadState': 'loaded', 'Result': 'success'}
+        value['research_job_status'] = {'status': 'observed', 'updated_at': stamp, 'jobs': {
+            name: {'job': name, 'status': status, 'started_at': stamp, 'updated_at': stamp, 'execution_allowed': False}}}
+        return value
+
+    def test_uninstalled_research_modules_keep_existing_monitor_behavior(self):
+        report = self.report()
+        self.assertEqual(report['issues'], [])
+        self.assertFalse(any('research' in item or 'news_' in item for item in report['pending_acceptance']))
+        self.assertEqual(report['research_runs'], [])
+
+    def test_three_research_systemd_failures_are_not_hidden_by_latest_data(self):
+        for name in ('news', 'work', 'request'):
+            value = self.research_payload(name)
+            value['research_' + name + '_job']['Result'] = 'exit-code'
+            self.assertIn('research_' + name + '_job_failed', self.report(value)['issues'])
+
+    def test_failed_and_unknown_research_summaries_raise_attention(self):
+        for status in ('failed', 'unknown'):
+            report = self.report(self.research_payload(status=status))
+            self.assertIn('research_work_job_state_' + status, report['issues'])
+            self.assertEqual(report['status'], 'attention')
+
+    def test_research_model_configuration_and_missing_evidence_are_pending_not_success(self):
+        for status in ('needs_model_configuration', 'no_evidence'):
+            report = self.report(self.research_payload(status=status))
+            self.assertEqual(report['issues'], [])
+            self.assertIn('research_work_job_' + status, report['pending_acceptance'])
+            self.assertIn('research_results_not_approved_for_strategy_execution', report['pending_acceptance'])
+            self.assertFalse(report['completed_backlog'])
+
+    def test_each_job_uses_its_own_last_result_and_staleness_budget(self):
+        value = self.research_payload('work', stamp='2026-11-17T09:59:00+08:00')
+        value['research_news_job'] = {'LoadState': 'loaded', 'Result': 'success'}
+        value['research_job_status']['jobs']['news'] = {'job': 'news', 'status': 'ingested',
+            'execution_allowed': False, 'started_at': '2026-11-17T08:00:00+08:00', 'updated_at': '2026-11-17T08:00:00+08:00'}
+        report = self.report(value)
+        self.assertIn('research_news_job_status_stale', report['issues'])
+        self.assertNotIn('research_work_job_status_stale', report['issues'])
+        self.assertIn('research_work_job_status_stale', self.report(self.research_payload(stamp='2026-11-17T09:49:59+08:00'))['issues'])
+        self.assertIn('research_request_job_status_stale', self.report(self.research_payload('request', stamp='2026-11-15T08:30:00+08:00'))['issues'])
+
+    def test_news_planned_overnight_pause_does_not_look_stale(self):
+        value = self.research_payload('news', 'ingested', stamp='2026-11-16T22:30:00+08:00')
+        value['observed_at'] = '2026-11-17T06:30:00+08:00'
+        self.assertNotIn('research_news_job_status_stale', self.report(value)['issues'])
+        value['observed_at'] = '2026-11-17T07:31:00+08:00'
+        self.assertIn('research_news_job_status_stale', self.report(value)['issues'])
+
+    def test_running_future_and_invalid_summary_times_fail_closed(self):
+        value = self.research_payload(status='started', stamp='2026-11-17T09:54:00+08:00')
+        self.assertIn('research_work_job_running_stale', self.report(value)['issues'])
+        for stamp in ('2026-11-17T10:00:01+08:00', 'invalid'):
+            value = self.research_payload(stamp=stamp)
+            self.assertIn('research_work_job_time_invalid_or_future', self.report(value)['issues'])
+
+    def test_missing_installed_summary_is_pending_and_malformed_summary_is_attention(self):
+        value = self.research_payload()
+        value['research_job_status'] = {'status': 'not_observed', 'jobs': {}}
+        self.assertIn('research_work_job_not_observed', self.report(value)['pending_acceptance'])
+        value['research_job_status'] = {'status': 'invalid_or_unavailable', 'jobs': {}}
+        self.assertIn('research_job_status_invalid_or_unavailable', self.report(value)['issues'])
+
+    def test_latest_research_per_account_survives_idle_worker_summary(self):
+        value = self.research_payload()
+        value['research_schema_present'] = True
+        value['research_runs'] = [
+            {'account_ref': 'first', 'status': 'failed', 'created_at': '2026-11-17T09:00:00+08:00', 'execution_allowed': False, 'approval_status': 'not_submitted'},
+            {'account_ref': 'second', 'status': 'no_evidence', 'created_at': '2026-11-17T09:00:00+08:00', 'execution_allowed': False, 'approval_status': 'not_submitted'}]
+        report = self.report(value)
+        self.assertIn('research_latest_run_failed:first', report['issues'])
+        self.assertIn('research_no_evidence:second', report['pending_acceptance'])
+        value['research_runs'][0].update(status='started', execution_allowed=True)
+        report = self.report(value)
+        self.assertIn('research_latest_run_stale:first', report['issues'])
+        self.assertIn('research_safety_changed:first', report['issues'])
+
+    def test_news_evidence_failure_missing_and_module_unavailable_are_explicit(self):
+        value = payload()
+        value['news_schema_present'] = True
+        value['news_observation'] = {'status': 'invalid_or_unavailable'}
+        self.assertIn('news_evidence_invalid_or_unavailable', self.report(value)['issues'])
+        for status in ('not_observed', 'module_unavailable'):
+            value['news_observation'] = {'status': status}
+            self.assertIn('news_evidence_' + status, self.report(value)['pending_acceptance'])
+        value['news_observation'] = {'status': 'verified', 'received_at': '2026-11-17T10:00:01+08:00'}
+        self.assertIn('news_evidence_received_at_in_future', self.report(value)['issues'])
+
+    def test_research_summary_reader_rejects_secret_fields_bad_schema_symlink_and_oversize(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            state = Path(temporary)
+            path = state / 'research-job-status.json'
+            self.assertEqual(monitor.research_job_status(state), {'status': 'not_observed', 'jobs': {}})
+            stamp = '2026-11-17T09:59:00+08:00'
+            data = {'schema_version': 1, 'updated_at': stamp, 'jobs': {'work': {
+                'job': 'work', 'status': 'failed', 'started_at': stamp, 'updated_at': stamp,
+                'execution_allowed': False, 'error': 'model_request_failed'}}}
+            path.write_text(json.dumps(data))
+            self.assertEqual(monitor.research_job_status(state)['jobs']['work']['error'], 'model_request_failed')
+            data['jobs']['work']['raw_response'] = 'do-not-expose'
+            path.write_text(json.dumps(data))
+            result = monitor.research_job_status(state)
+            self.assertEqual(result['status'], 'invalid_or_unavailable')
+            self.assertNotIn('do-not-expose', json.dumps(result))
+            for content in ('[]', '{bad', ' ' * 16385):
+                path.write_text(content)
+                self.assertEqual(monitor.research_job_status(state)['status'], 'invalid_or_unavailable')
+            path.unlink()
+            target = state / 'target.json'
+            target.write_text('{}')
+            path.symlink_to(target)
+            self.assertEqual(monitor.research_job_status(state)['status'], 'invalid_or_unavailable')
+
+    def test_collect_checks_exact_research_service_names_without_starting_jobs(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            state = Path(temporary)
+            (state / 'deployment.json').write_text(json.dumps({'project': 'paper-test'}))
+            with patch.object(monitor.paper_stack, 'compose', return_value=['stub']), \
+                    patch.object(monitor.subprocess, 'check_output', side_effect=[json.dumps(payload()), '[]']), \
+                    patch.object(monitor.subprocess, 'run', return_value=SimpleNamespace(returncode=0, stdout='LoadState=not-found')) as call:
+                result = monitor.collect(state)
+            commands = [item.args[0] for item in call.call_args_list]
+            for name in ('news', 'work', 'request'):
+                self.assertIn(['systemctl', '--user', 'show', 'quantdinger-research-' + name + '-paper-test.service', '--property=LoadState,ActiveState,Result'], commands)
+            self.assertNotIn('research_job_status', result)
+
+    def test_collector_queries_latest_research_for_each_account_without_sensitive_columns(self):
+        queries = []
+        current = datetime.now(timezone.utc)
+        class Cursor:
+            def __enter__(self): return self
+            def __exit__(self, *_): return False
+            def execute(self, query, params=None): self.query = query; queries.append((query, params))
+            def fetchone(self):
+                if 'AS news_present' in self.query: return {'news_present': True, 'research_present': True}
+                if 'AS cash_ok' in self.query: return {'cash_ok': True, 'reservations_ok': True}
+                if 'FROM qd_ashare_research_runs' in self.query: return {'id': 'a'*32, 'status': 'no_evidence', 'created_at': current, 'started_at': None, 'completed_at': current, 'execution_allowed': False, 'approval_status': 'not_submitted'}
+                if 'to_regclass' in self.query: return {'present': False}
+                return {'mismatches': 0}
+            def fetchall(self):
+                if 'FROM qd_ashare_web' in self.query: return [{'tenant_id': tenant, 'account_id': 'paper', 'quotes': [], 'worker': {}, 'bot_configured': False} for tenant in ('one', 'two')]
+                return []
+        connection = SimpleNamespace(cursor=lambda **_: Cursor(), close=lambda: None)
+        class Connection:
+            def __enter__(self): return self
+            def __exit__(self, *_): return False
+            def cursor(self, **kwargs): return connection.cursor(**kwargs)
+            def close(self): pass
+            def set_session(self, **kwargs): self.session = kwargs
+        db = Connection()
+        calls = []
+        class NewsStore:
+            def __init__(self, value): self.connection = value
+            def list_items(self, **kwargs): calls.append(kwargs); return {'items': [], 'receipts': []}
+        modules = {
+            'psycopg2': SimpleNamespace(connect=lambda *_, **__: db, Error=RuntimeError),
+            'psycopg2.extras': SimpleNamespace(RealDictCursor=object),
+            'app.ashare.calendar_rules': SimpleNamespace(market_session=lambda _: {}, trading_day_status=lambda _: {}),
+            'app.ashare.schema': SimpleNamespace(get_database_url=lambda: 'stub-private-dsn'),
+            'app.ashare.news': SimpleNamespace(NewsStore=NewsStore, MAX_RECEIPTS=20)}
+        output = io.StringIO()
+        with patch.dict(sys.modules, modules), patch('shutil.disk_usage', return_value=SimpleNamespace(free=10**9)), redirect_stdout(output):
+            exec(compile(monitor.COLLECTOR, '<monitor collector>', 'exec'), {})
+        data = json.loads(output.getvalue())
+        research_queries = [(query, params) for query, params in queries if 'FROM qd_ashare_research_runs' in query]
+        self.assertEqual(len(research_queries), 2)
+        self.assertEqual([params for _, params in research_queries], [('one', 'paper'), ('two', 'paper')])
+        self.assertTrue(all('LIMIT 1' in query and 'raw_response' not in query and 'idempotency_key' not in query for query, _ in research_queries))
+        self.assertEqual(db.session['readonly'], True)
+        self.assertEqual(calls[0]['limit'], 1)
+        self.assertEqual(len(data['research_runs']), 2)
+        self.assertNotIn('stub-private-dsn', output.getvalue())
+        self.assertNotIn('tenant_id', output.getvalue())
 
 
 if __name__ == '__main__':

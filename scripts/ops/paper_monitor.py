@@ -12,6 +12,7 @@ import sys
 import tarfile
 from datetime import date, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import paper_stack
 
@@ -19,7 +20,7 @@ import paper_stack
 # is needed. Every database statement runs in a bounded read-only transaction.
 COLLECTOR = r'''
 from datetime import datetime, timezone
-import hashlib, json, os, shutil
+import hashlib, json, os, shutil, signal
 from pathlib import Path
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -31,7 +32,8 @@ connection = psycopg2.connect(get_database_url(), connect_timeout=5,
     options='-c statement_timeout=10000 -c lock_timeout=1000 -c application_name=paper_readonly_monitor')
 connection.set_session(readonly=True, isolation_level='REPEATABLE READ')
 accounts, observations, reports, receipts = [], [], [], []
-theme_receipts = []
+theme_receipts, research_runs = [], []
+news_observation = {'status': 'not_installed'}
 def evidence_check(path_value, expected):
     try:
         path = Path(path_value).resolve()
@@ -41,6 +43,9 @@ def evidence_check(path_value, expected):
     except (OSError, TypeError, ValueError):
         return 'unavailable_or_outside_data_volume'
 with connection, connection.cursor(cursor_factory=RealDictCursor) as cursor:
+    cursor.execute("SELECT to_regclass('qd_ashare_news_receipts') IS NOT NULL AND to_regclass('qd_ashare_news_items') IS NOT NULL AS news_present, to_regclass('qd_ashare_research_runs') IS NOT NULL AS research_present")
+    schema = cursor.fetchone()
+    news_schema_present, research_schema_present = schema['news_present'], schema['research_present']
     cursor.execute('SELECT process_name, observed_at, details FROM qd_ashare_process_health')
     heartbeats = [dict(row) for row in cursor.fetchall()]
     cursor.execute('SELECT tenant_id,account_id,quotes,worker,notifications_encrypted IS NOT NULL AS bot_configured FROM qd_ashare_web ORDER BY tenant_id,account_id')
@@ -52,6 +57,11 @@ with connection, connection.cursor(cursor_factory=RealDictCursor) as cursor:
             a.reserved_cash=COALESCE((SELECT SUM(o.reserved_cash) FROM qd_ashare_orders o WHERE o.tenant_id=a.tenant_id AND o.account_id=a.account_id AND o.status IN ('open','partial')),0) AS reservations_ok
             FROM qd_ashare_accounts a WHERE a.tenant_id=%s AND a.account_id=%s""", key)
         ledger = cursor.fetchone()
+        if research_schema_present:
+            cursor.execute('SELECT id,status,created_at,started_at,completed_at,execution_allowed,approval_status FROM qd_ashare_research_runs WHERE tenant_id=%s AND account_id=%s ORDER BY created_at DESC,id DESC LIMIT 1', key)
+            latest = cursor.fetchone()
+            if latest:
+                research_runs.append({'account_ref': account_ref, **dict(latest)})
         cursor.execute("""WITH expected AS (SELECT symbol,SUM(CASE WHEN side='buy' THEN quantity ELSE -quantity END) AS quantity FROM qd_ashare_fills WHERE tenant_id=%s AND account_id=%s GROUP BY symbol), held AS (SELECT symbol,SUM(quantity) AS quantity FROM qd_ashare_lots WHERE tenant_id=%s AND account_id=%s GROUP BY symbol)
             SELECT COUNT(*) AS mismatches FROM expected FULL JOIN held USING(symbol) WHERE COALESCE(expected.quantity,0)<>COALESCE(held.quantity,0)""", (*key, *key))
         shares_ok = cursor.fetchone()['mismatches'] == 0
@@ -95,6 +105,29 @@ if theme_receipts:
         except (ValueError, OSError):
             receipt['evidence_status'] = 'invalid_or_unavailable'
         receipt['known_at_semantics'] = 'current_members_observed_at_receipt_not_historical_backfill'
+if news_schema_present:
+    def news_budget_expired(*_):
+        raise TimeoutError('news_monitor_budget_expired')
+    previous_alarm = signal.signal(signal.SIGALRM, news_budget_expired)
+    signal.setitimer(signal.ITIMER_REAL, 15)
+    try:
+        from app.ashare.news import NewsStore, MAX_RECEIPTS
+        if MAX_RECEIPTS > 20:
+            raise ValueError('news_monitor_budget_exceeded')
+        verified = NewsStore(connection).list_items(topics=('ai', 'robotics', 'new_energy'), known_at=now, limit=1)
+        latest = verified['receipts'][0] if verified['receipts'] else None
+        news_observation = {'status': 'verified' if latest else 'not_observed',
+                            'verified_receipt_count': len(verified['receipts']), 'item_limit': 1,
+                            'coverage': 'limited_recent_sample'}
+        if latest:
+            news_observation.update({key: latest[key] for key in ('receipt_id', 'received_at', 'source_hash')})
+    except ImportError:
+        news_observation = {'status': 'module_unavailable'}
+    except (ValueError, OSError, KeyError, TypeError, psycopg2.Error):
+        news_observation = {'status': 'invalid_or_unavailable'}
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous_alarm)
 connection.close()
 safe_flags={key:os.getenv(key,'').lower()=='false' for key in ('LIVE_TRADING_ENABLED','AGENT_LIVE_TRADING_ENABLED','AI_AUTO_PROMOTION_ENABLED')}
 print(json.dumps({'observed_at':now.isoformat(),'session':market_session(now),
@@ -102,7 +135,9 @@ print(json.dumps({'observed_at':now.isoformat(),'session':market_session(now),
     'daily_reports':reports,'safety_flags_disabled':safe_flags,
     'data_free_bytes':shutil.disk_usage('/app/data').free,
     'reference_schema_present':reference_schema_present,'reference_receipts':receipts,
-    'theme_receipts':theme_receipts},default=str))
+    'theme_receipts':theme_receipts,'news_schema_present':news_schema_present,
+    'research_schema_present':research_schema_present,'news_observation':news_observation,
+    'research_runs':research_runs},default=str))
 '''
 
 
@@ -122,7 +157,10 @@ def collect(state):
     project = json.loads((state / 'deployment.json').read_text())['project']
     paper_stack.check_project(project)
     for key, prefix in (('reference_sync_job', 'quantdinger-securities-'),
-                        ('theme_sync_job', 'quantdinger-themes-')):
+                        ('theme_sync_job', 'quantdinger-themes-'),
+                        ('research_news_job', 'quantdinger-research-news-'),
+                        ('research_work_job', 'quantdinger-research-work-'),
+                        ('research_request_job', 'quantdinger-research-request-')):
         try:
             unit = subprocess.run(
                 ['systemctl', '--user', 'show', prefix + project + '.service',
@@ -137,6 +175,8 @@ def collect(state):
             payload[key] = {'LoadState': 'monitor_unavailable'}
     if payload.get('theme_sync_job', {}).get('LoadState') == 'loaded':
         payload['theme_sync_status'] = theme_sync_status(state)
+    if any(payload.get('research_' + job + '_job', {}).get('LoadState') == 'loaded' for job in ('news', 'work', 'request')):
+        payload['research_job_status'] = research_job_status(state)
     return payload
 
 
@@ -161,6 +201,109 @@ def theme_sync_status(state):
         return result
     except (OSError, ValueError, TypeError, AttributeError, KeyError):
         return {'status': 'invalid_or_unavailable'}
+
+
+
+def research_job_status(state):
+    """Read validated job summaries only; never expose request or model payloads."""
+    path = state / 'research-job-status.json'
+    if not path.exists() and not path.is_symlink():
+        return {'status': 'not_observed', 'jobs': {}}
+    try:
+        from research_jobs import load_job_status
+        value = load_job_status(state)
+        jobs = {}
+        for name in ('news', 'work', 'request'):
+            item = value.get('jobs', {}).get(name)
+            if item is not None:
+                jobs[name] = {key: item[key] for key in ('job', 'status', 'started_at', 'updated_at',
+                    'execution_allowed', 'id', 'receipt_id', 'item_count', 'source_hash', 'error') if key in item}
+        return {'status': 'observed', 'updated_at': value['updated_at'], 'jobs': jobs}
+    except (ImportError, OSError, ValueError, TypeError, AttributeError, KeyError):
+        return {'status': 'invalid_or_unavailable', 'jobs': {}}
+
+
+def assess_research(payload, now, issues, pending):
+    """Additional evidence stays optional for deployments predating these jobs."""
+    summary = payload.get('research_job_status', {})
+    for name in ('news', 'work', 'request'):
+        prefix = 'research_' + name + '_job'
+        unit = payload.get(prefix, {})
+        if unit.get('Result') not in (None, '', 'success'):
+            issues.append(prefix + '_failed')
+        if unit.get('LoadState') == 'monitor_unavailable':
+            pending.append(prefix + '_health_unavailable')
+        if unit.get('LoadState') != 'loaded':
+            continue
+        if summary.get('status') == 'invalid_or_unavailable':
+            issues.append('research_job_status_invalid_or_unavailable')
+            continue
+        item = summary.get('jobs', {}).get(name)
+        if not item:
+            pending.append(prefix + '_not_observed')
+            continue
+        status = item.get('status')
+        if item.get('execution_allowed') is not False:
+            issues.append(prefix + '_safety_changed')
+        if status in ('failed', 'unknown'):
+            issues.append(prefix + '_state_' + status)
+        elif status in ('needs_model_configuration', 'no_evidence', 'skipped_before_window', 'skipped_active', 'skipped_daily_limit', 'queued', 'started'):
+            pending.append(prefix + '_' + status)
+        elif status not in ('ingested', 'idle', 'completed'):
+            issues.append(prefix + '_state_invalid')
+        try:
+            age = (now - timestamp(item['updated_at'])).total_seconds()
+            started_age = (now - timestamp(item['started_at'])).total_seconds()
+            if age < 0 or started_age < age:
+                issues.append(prefix + '_time_invalid_or_future')
+            else:
+                local = now.astimezone(ZoneInfo('Asia/Shanghai'))
+                # News intentionally sleeps overnight; allow its first morning run.
+                limit = 90 * 60 if (7, 30) <= (local.hour, local.minute) <= (22, 59) else 12 * 3600
+                if name != 'news':
+                    limit = 10 * 60 if name == 'work' else 30 * 3600
+                if age > limit:
+                    issues.append(prefix + '_status_stale')
+                if status == 'started' and started_age > 300:
+                    issues.append(prefix + '_running_stale')
+        except (KeyError, ValueError, TypeError):
+            issues.append(prefix + '_time_invalid_or_future')
+    news = payload.get('news_observation', {})
+    if payload.get('news_schema_present'):
+        if news.get('status') in ('not_observed', 'module_unavailable'):
+            pending.append('news_evidence_' + news['status'])
+        elif news.get('status') != 'verified':
+            issues.append('news_evidence_invalid_or_unavailable')
+        else:
+            try:
+                if timestamp(news['received_at']) > now:
+                    issues.append('news_evidence_received_at_in_future')
+            except (KeyError, ValueError, TypeError):
+                issues.append('news_evidence_received_at_invalid')
+    if payload.get('research_schema_present') and not payload.get('research_runs'):
+        pending.append('research_not_yet_observed')
+    for run in payload.get('research_runs', []):
+        ref = run['account_ref']
+        if run.get('execution_allowed') is not False or run.get('approval_status') != 'not_submitted':
+            issues.append('research_safety_changed:' + ref)
+        status = run.get('status')
+        if status == 'failed':
+            issues.append('research_latest_run_failed:' + ref)
+        elif status in ('needs_model_configuration', 'no_evidence', 'queued', 'started'):
+            pending.append('research_' + status + ':' + ref)
+        elif status != 'completed':
+            issues.append('research_latest_run_state_invalid:' + ref)
+        try:
+            created = timestamp(run['created_at'])
+            times = [timestamp(run[key]) for key in ('started_at', 'completed_at') if run.get(key)]
+            if created > now or any(value < created or value > now for value in times):
+                issues.append('research_latest_run_time_invalid:' + ref)
+            if status in ('queued', 'started') and (now - created).total_seconds() > 10 * 60:
+                issues.append('research_latest_run_stale:' + ref)
+        except (KeyError, ValueError, TypeError):
+            issues.append('research_latest_run_time_invalid:' + ref)
+    if any(payload.get('research_' + name + '_job', {}).get('LoadState') == 'loaded' for name in ('news', 'work', 'request')) or payload.get('research_schema_present'):
+        pending.append('research_results_not_approved_for_strategy_execution')
 
 
 def backup_free_bytes(root):
@@ -278,6 +421,7 @@ def assess(payload, backup, *, target_days=5):
                     issues.append('theme_sync_job_running_stale')
             except (KeyError, TypeError, ValueError):
                 issues.append('theme_sync_job_time_invalid')
+    assess_research(payload, now, issues, pending)
     if payload.get('data_free_bytes', 0) < 100 * 1024 * 1024:
         issues.append('data_volume_capacity_low')
     if backup.get('free_bytes', 0) < 500 * 1024 * 1024:
@@ -320,6 +464,12 @@ def assess(payload, backup, *, target_days=5):
             'completed_backlog': False, 'backup': backup, 'reference_sync_job': job,
             'theme_sync_job': theme_job,
             'theme_sync_status': theme_status,
+            'research_jobs': {name: payload.get('research_' + name + '_job', {}) for name in ('news', 'work', 'request')},
+            'research_job_status': payload.get('research_job_status', {}),
+            'news_schema_present': payload.get('news_schema_present', False),
+            'research_schema_present': payload.get('research_schema_present', False),
+            'news_observation': payload.get('news_observation', {}),
+            'research_runs': payload.get('research_runs', []),
             'daily_report_count': len(payload['daily_reports']),
             'data_free_bytes': payload.get('data_free_bytes'),
             'reference_schema_present': payload.get('reference_schema_present', False),

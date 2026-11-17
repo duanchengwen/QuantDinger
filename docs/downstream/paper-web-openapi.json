@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "A-share human paper API",
-    "version": "0.5.0",
+    "version": "0.6.0",
     "description": "Human JWT only; tenant derives from verified user. Real brokerage and Agent writes remain disabled."
   },
   "servers": [
@@ -1015,6 +1015,157 @@
             "description": "Database or evidence unavailable; no internal paths or exception details."
           }
         }
+      }
+    },
+    "/news": {
+      "get": {
+        "summary": "Verified limited recent issuer announcement titles for selected supported topics; no full-text or trading signal claim.",
+        "responses": {
+          "200": {
+            "description": "Authenticated research response; execution_allowed is always false."
+          },
+          "400": {
+            "description": "Invalid bounded query or unavailable run"
+          },
+          "401": {
+            "description": "Human authentication required"
+          },
+          "503": {
+            "description": "Evidence or database unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            }
+          }
+        ]
+      }
+    },
+    "/research/status": {
+      "get": {
+        "summary": "Configured DeepSeek status and latest tenant-scoped research; no secrets.",
+        "responses": {
+          "200": {
+            "description": "Authenticated research response; execution_allowed is always false."
+          },
+          "400": {
+            "description": "Invalid bounded query or unavailable run"
+          },
+          "401": {
+            "description": "Human authentication required"
+          },
+          "503": {
+            "description": "Evidence or database unavailable"
+          }
+        }
+      }
+    },
+    "/research/runs": {
+      "get": {
+        "summary": "List tenant-scoped research runs; no raw model output.",
+        "responses": {
+          "200": {
+            "description": "Authenticated research response; execution_allowed is always false."
+          },
+          "400": {
+            "description": "Invalid bounded query or unavailable run"
+          },
+          "401": {
+            "description": "Human authentication required"
+          },
+          "503": {
+            "description": "Evidence or database unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20,
+              "default": 10
+            }
+          }
+        ]
+      },
+      "post": {
+        "summary": "Queue one bounded DeepSeek research request; no strategy approval or orders. At most 3 new requests per account/CST day; replay same key returns original run.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "idempotency_key"
+                ],
+                "properties": {
+                  "idempotency_key": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{8,100}$"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Durable queued or prior run"
+          },
+          "400": {
+            "description": "Invalid input, missing paper account, active run or daily limit"
+          },
+          "401": {
+            "description": "Human authentication required"
+          },
+          "403": {
+            "description": "Viewer cannot write"
+          },
+          "503": {
+            "description": "Evidence or database unavailable"
+          }
+        }
+      }
+    },
+    "/research/runs/{run_id}": {
+      "get": {
+        "summary": "Read one tenant-scoped research run with verified input/output hashes.",
+        "responses": {
+          "200": {
+            "description": "Authenticated research response; execution_allowed is always false."
+          },
+          "400": {
+            "description": "Invalid bounded query or unavailable run"
+          },
+          "401": {
+            "description": "Human authentication required"
+          },
+          "503": {
+            "description": "Evidence or database unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{32}$"
+            }
+          }
+        ]
       }
     }
   }

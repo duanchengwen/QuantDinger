@@ -1,0 +1,46 @@
+# Company-announcement evidence: bounded CNinfo integration
+
+[中文](NEWS_SOURCES_CN.md)
+
+Research date: 2026-11-18. Findings use first-party pages and responses only. Probes did not access production databases, models or Feishu; they are not production archival receipts or evidence of sustained availability.
+
+## Source decision and actual probes
+
+The first supported source is [CNinfo](https://www.cninfo.com.cn/) and its [public announcement query endpoint](https://www.cninfo.com.cn/new/hisAnnouncement/query). The POST response provides announcement titles, explicit issuer codes/names, provider timestamps and official PDF paths. It returned HTTP 200 without an account or API key in this investigation. There is no documented stability contract here; public accessibility does not establish perpetual availability or redistribution rights. The implementation is for local evidence research and does not bypass authentication, payment or access restrictions.
+
+An initial artificial-intelligence query returned 30 records and a provider total of 252. The leading record concerned China Merchants Expressway's proposed AI industry fund, dated 2026-10-30 by the provider; receiving it today does not make it today's news. Its [official original PDF](https://static.cninfo.com.cn/finalpage/2026-10-30/1225642382.PDF) returned HTTP 200 and 136937 bytes, SHA-256 `e2494fc48dd8b52f716c4b69c0066e6c22095e667336182f26c2d786464dfde4`. This verified access to PDF bytes, not extraction or independent verification of its contents.
+
+The third and final CNinfo probe requested five robotics records: HTTP 200, 3832 bytes, five records, provider total 14229. None of the five titles contained the robotics keyword. A provider full-text search hit therefore cannot be treated as explicit title relevance. The implementation applies its own title-keyword filter and accepts zero matches. The three probes comprised two index reads and one PDF read. New energy was not probed and is not reported as a successful actual collection.
+
+The [CLS public telegraph page](https://www.cls.cn/telegraph) was evaluated with at most three bounded reads. Its page response did not contain an archivable telegraph list, and the former `nodeapi/updateTelegraphList` endpoint returned 404. CLS is not integrated. Search snippets are not substituted for original content, and endpoint guessing/retries were stopped.
+
+## Scope and evidence strength
+
+- The source supplies **company announcements**, not a complete industry-news, telegraph or real-time feed.
+- Only fixed mappings are accepted: `ai → 人工智能`, `robotics → 机器人`, `new_energy → 新能源`. Each selected topic requests the first five records only, at most three index pages. Both API and evidence state `coverage=limited_recent_sample`.
+- Although provider searches can match document bodies, this version reads only titles. An item enters the research list only when its title contains an explicit configured keyword. A match does not establish issuer benefit or tradability.
+- All raw index JSON responses are archived, along with the official original PDFs for matching items within the attachment-size limit. Provider-declared oversized items appear in `excluded_items`, never research `items`. `content_kind=announcement_title` and `content` contains the provider title only, **not PDF full text, a summary or extracted body text**. PDFs are not executed, rendered or supplied to a model.
+- Security identity comes only from official `secCode/secName/pageColumn`, checked against existing supported Shanghai/Shenzhen A-share scope. It establishes the announcement issuer, not theme membership, event benefit or daily trading eligibility. Research linking a security must separately verify archived theme membership.
+- Provider `announcementTime` milliseconds are converted to UTC with `publication_time_precision=provider_timestamp_unverified`. Observed responses include date-boundary timestamps; these are not certified intraday publication times. Missing timestamps stay null and future timestamps are marked `future`; neither qualifies as fresh evidence.
+
+## Time, storage and read contract
+
+`ingest_news(connection, evidence_dir, topics=('ai','robotics','new_energy'), timeout=45)` owns its UTC receipt clock and exposes no knowledge-time backdating parameter. Each archive records request parameters, per-response receipt times, response-content bytes seen by the HTTP client, JSON/PDF SHA-256 hashes and a manifest binding the capture and normalization. Bytes exclude TLS network frames.
+
+PostgreSQL tables `qd_ashare_news_receipts` and `qd_ashare_news_items` are append-only. Database triggers reject UPDATE, DELETE and TRUNCATE. Repeated observations and article revisions remain stored; the research list returns only each article’s latest version known at the requested instant. Earlier as-of queries still expose the version known then; no version is deleted. After selecting versions and filtering topics, valid publication timestamps sort newest first, followed by future timestamps and finally missing timestamps. Receipt time descending and version ID provide deterministic ties; result limits apply last. Sorting never changes future-time flags or makes those items eligible for research.
+
+`NewsStore(connection).list_items(topics, known_at, limit=100)` is the read-only research contract. `known_at` must be timezone-aware and no later than now. Only evidence received by that instant is visible; an older publication date does not permit pre-archive historical knowledge. Queries verify at most the latest 20 known receipts and flag `truncated` when that scope is exceeded. Before topic filtering or result limiting, each selected receipt's complete manifest, all raw files, re-normalized contents and every database item are checked. Corruption fails the entire read rather than returning partially trusted evidence.
+
+Items include `id` (receipt/article version identity), `article_id`, `title`, `content`, `content_kind`, `published_at`, `received_at`, `known_at`, `timestamp_status`, `source`, `source_url`, `source_hash`, `pdf_hash`, `content_hash`, `topics`, `securities` and `stock_symbols`. An item's `source_hash` identifies its raw index JSON, `pdf_hash` identifies the original PDF, and a receipt's own `source_hash` identifies the manifest. Research candidates can cite item IDs to reference exact observed versions.
+
+## Bounds and failure behavior
+
+Network access is restricted to the fixed HTTPS index and validated `static.cninfo.com.cn/finalpage/date/numeric-ID.PDF` paths. User URLs, redirects, retries, environment proxies and implicit network credentials are disabled. There are at most 18 requests (three indexes plus fifteen distinct PDFs), 256 KiB per index, 2 MiB per PDF and 16 MiB total. A child process enforces a hard collection deadline: 45 seconds by default, at most 120 seconds.
+
+Incomplete pages, invalid fields, conflicting duplicate identities, unexpectedly missing/non-PDF documents, timeouts and actual download budget overruns cannot publish a receipt. `adjunctSize` is conservatively treated as provider KB at 1024 bytes per unit for exclusion: a declared attachment above 2 MiB is not requested. This assumption does not certify the provider unit or actual file length. The manifest and receipt retain excluded IDs, titles, topics, source URLs, declared sizes, conversion units, reasons and `original_pdf_archived=false`. Missing or understated declarations never relax actual byte limits. Zero title matches may publish an honest zero-item observation, which does not mean a stock recommendation was produced. Failures preserve previous archives without relabeling stale announcements as fresh. This module does not invoke models, change watchlists, approve strategies or place orders. Live trading and AI strategy promotion remain prohibited.
+
+## Bounded diagnosis of the first deployment failure
+
+The initial production task published no receipt. A bounded diagnostic using the same image returned HTTP 200 for all three indexes and archived eight complete PDFs, then hit the 2 MiB per-document limit on Jilin Jidian New Energy audit report `1225676397`. The index had already declared `adjunctSize=18649`; another valuation attachment, `1225676398`, declared 23517. Small-document byte/declared-size ratios were consistent with KB magnitude, but no official unit contract was obtained. Size metadata therefore supports conservative exclusion only; independent actual-byte limits remain enforced.
+
+The first diagnostic launch itself failed because its newly created directory was not writable by the image UID; that failed attempt was retained. After permissions were corrected and checked without networking, one explicitly authorized bounded capture ran. An offline replay of the saved original responses passed after the fix: eight complete-PDF items and two explicit exclusions. Replay did not write production data, and its synthetic replay clock is not an original historical receipt time. A fresh production ingestion still requires separate acceptance. Known lower-level failures now propagate only through the explicit `SAFE_NEWS_ERRORS` machine-code allowlist; unknown exceptions, paths and provider text remain redacted.

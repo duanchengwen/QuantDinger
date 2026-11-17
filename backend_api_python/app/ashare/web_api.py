@@ -93,6 +93,106 @@ class _ThemeReadUnavailable(Exception):
     """Only theme reads translate evidence errors into a safe 503 response."""
 
 
+class _ResearchUnavailable(Exception):
+    """Keep provider/configuration/filesystem exception details out of HTTP."""
+
+
+def _research_endpoint(write=False):
+    def decorate(function):
+        authenticated = endpoint(write=write)(function)
+
+        @wraps(function)
+        def wrapped(*args, **kwargs):
+            try:
+                return authenticated(*args, **kwargs)
+            except _ResearchUnavailable:
+                return jsonify(code=0, msg="research_evidence_unavailable", data=None), 503
+        return wrapped
+    return decorate
+
+
+def _research_limit(default, maximum):
+    query_fields({'limit'})
+    if any(len(request.args.getlist(key)) != 1 for key in request.args):
+        raise ValueError('duplicate_query_fields')
+    value = request.args.get('limit', str(default))
+    if not value.isascii() or not value.isdecimal() or len(value) > 3 or not 1 <= int(value) <= maximum:
+        raise ValueError('invalid_research_limit')
+    return int(value)
+
+
+def _research_operation(store, operation, *, write=False):
+    if not write:
+        store.connection.set_session(readonly=True, isolation_level='REPEATABLE READ')
+    try:
+        return operation()
+    except (ValueError, TypeError, KeyError, OSError) as exc:
+        from app.ashare.research import ResearchError
+        public_errors = {'invalid_idempotency_key', 'paper_account_required',
+                         'invalid_research_preferences', 'research_already_active',
+                         'research_daily_limit', 'invalid_research_limit'}
+        if isinstance(exc, ResearchError) and str(exc) in public_errors:
+            raise ValueError(str(exc)) from None
+        raise _ResearchUnavailable() from None
+
+
+@blueprint.get('/news')
+@_research_endpoint()
+def research_news(store):
+    from app.ashare.news import NewsStore
+    limit = _research_limit(20, 50)
+    def read_news():
+        preferences = store.settings().get('research_preferences', {})
+        topics = [topic for topic in preferences.get('topics', []) if topic in ('ai', 'robotics', 'new_energy')]
+        if not topics:
+            return {'items': [], 'status': 'no_selected_topics'}
+        return NewsStore(store.connection).list_items(
+            topics=topics, known_at=datetime.now(timezone.utc), limit=limit)
+    return _research_operation(store, read_news)
+
+
+@blueprint.get('/research/status')
+@_research_endpoint()
+def research_status(store):
+    from app.ashare.research import ResearchStore
+    _theme_query(set())
+    return _research_operation(store, lambda: ResearchStore(store.connection, *store.key).status())
+
+
+@blueprint.get('/research/runs')
+@_research_endpoint()
+def research_runs(store):
+    from app.ashare.research import ResearchStore
+    limit = _research_limit(10, 20)
+    return _research_operation(store, lambda: ResearchStore(store.connection, *store.key).list_runs(limit=limit))
+
+
+@blueprint.get('/research/runs/<run_id>')
+@_research_endpoint()
+def research_run(store, run_id):
+    import re
+    from app.ashare.research import ResearchStore
+    _theme_query(set())
+    if not re.fullmatch(r'[a-f0-9]{32}', run_id):
+        raise ValueError('invalid_research_run_id')
+    result = _research_operation(store, lambda: ResearchStore(store.connection, *store.key).get_run(run_id))
+    if result is None:
+        raise ValueError('research_run_not_found')
+    return result
+
+
+@blueprint.post('/research/runs')
+@_research_endpoint(write=True)
+def request_research(store):
+    import re
+    from app.ashare.research import ResearchStore
+    data = body({'idempotency_key'})
+    key = data.get('idempotency_key')
+    if not isinstance(key, str) or not re.fullmatch(r'[A-Za-z0-9_-]{8,100}', key):
+        raise ValueError('invalid_research_idempotency_key')
+    return _research_operation(store, lambda: ResearchStore(store.connection, *store.key).request_run(key), write=True)
+
+
 def _theme_endpoint(function):
     authenticated = endpoint()(function)
 

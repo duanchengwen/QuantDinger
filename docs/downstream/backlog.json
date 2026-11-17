@@ -31,7 +31,7 @@
     {
       "id": "theme_preferences_panel",
       "status": "accepted",
-      "acceptance": "Account-specific AI/robotics/new-energy/semiconductor preferences; saving choices does not start research or trading."
+      "acceptance": "Account-specific preferences drive manual or explicitly installed daily research. Supported evidence scope AI/robotics/new energy; saving preferences alone never submits research or enables trading. Semiconductors/custom/hot-event discovery not implemented."
     },
     {
       "id": "natural_multiday_validation",
@@ -50,18 +50,18 @@
     },
     {
       "id": "scheduled_news_ingestion",
-      "status": "partial_timestamp_hardening",
-      "acceptance": "Collector no longer substitutes today for missing publication dates; separate UTC receipt times; report evidence excludes missing/unparseable publication dates with a quality flag. Scheduled original-source ingestion, raw hashes, deduplication and prompt-injection boundary acceptance remain pending."
+      "status": "accepted_limited_scope",
+      "acceptance": "CNinfo title-only three-topic bounded ingestion and immutable original JSON/PDF evidence accepted with 8 actual items, 2 declared oversized exclusions. 07:00–22:30 half-hour local timer installed; first natural collection pending. Full-text and broad timely industry news remain open. See NEWS_RESEARCH_ACCEPTANCE_CN.md."
     },
     {
       "id": "deepseek_research_agent",
-      "status": "needs_user_configuration",
-      "acceptance": "Use existing model service for research after user configures key in app; no key in chat; preserve research inputs/results and cost."
+      "status": "accepted_limited_scope",
+      "acceptance": "User configured deepseek-flash; actual single request completed with one evidence-scoped issuer research candidate, 1768 provider tokens, input/output hashes. Daily 08:30 explicit-account request timer and two-minute finite queue worker installed. No executable strategy, approval or orders; title evidence only."
     },
     {
       "id": "recommendations_and_approval",
-      "status": "pending",
-      "acceptance": "Evidence-based stock candidates and versioned strategies; user approves exact version before enabling simulation."
+      "status": "partial_research_only",
+      "acceptance": "Evidence-referenced issuer research candidates implemented and actual model result verified. Versioned strategy generation/evaluation and human approval of exact version remain pending; research is never execution authorization."
     },
     {
       "id": "approved_strategy_auto_paper",
@@ -111,7 +111,7 @@
     {
       "id": "official_ashare_watchlist",
       "status": "accepted",
-      "acceptance": "Official picker exposes A股; real browser search 平安银行 returns000001. CNStock metadata normalized to equity, stable asset IDs retained."
+      "acceptance": "Official A-share search and identity metadata retained. Fixed common watchlist context labels hiding existing names; paper selectors and holdings show observed names or explicit missing-name labels; 37 frontend tests passed."
     },
     {
       "id": "daily_feishu_ledger_summary",

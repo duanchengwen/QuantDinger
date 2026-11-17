@@ -31,7 +31,7 @@ def prepare(target):
         raise SystemExit("Unexpected upstream revision; review and update the pinned overlay first")
     if digest(target / "LICENSE") != digest(OVERLAY / "UPSTREAM_LICENSE.txt"):
         raise SystemExit("Upstream license differs from the reviewed version")
-    for name in ("upstream.patch", "password-profile.patch"):
+    for name in ("upstream.patch", "password-profile.patch", "watchlist-names.patch"):
         patch = str(OVERLAY / name)
         if subprocess.run(["git", "apply", "--check", patch], cwd=target, capture_output=True, check=False).returncode == 0:
             run("git", "apply", patch, cwd=target)

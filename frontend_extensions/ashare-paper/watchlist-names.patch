@@ -1,0 +1,11 @@
+diff --git a/src/utils/watchlistAssets.js b/src/utils/watchlistAssets.js
+--- a/src/utils/watchlistAssets.js
++++ b/src/utils/watchlistAssets.js
+@@ -26,5 +26,6 @@
+   const typeLabels = types.map(type => translate('marketContext.' + type))
+   const product = String(item.product_type || '').toLowerCase()
+   const productLabel = product && product !== 'crypto' ? translate('marketContext.product.' + product) : ''
+-  return [productLabel, ...typeLabels].filter(Boolean).join(' · ') || item.name || item.symbol
++  const name = String(item.name || '').trim()
++  return [name, productLabel, ...typeLabels].filter(Boolean).join(' · ') || item.symbol
+ }

@@ -116,7 +116,7 @@ def test_documented_routes_match_registered_routes():
     spec=json.loads((Path(__file__).parents[3]/"docs/downstream/paper-web-openapi.json").read_text())
     app=Flask(__name__)
     app.register_blueprint(blueprint)
-    actual={(rule.rule.replace("/api/ashare-paper", "").replace("<int:order_id>","{order_id}").replace("<board_code>","{board_code}"),method.lower()) for rule in app.url_map.iter_rules() if rule.rule.startswith("/api/ashare-paper") for method in rule.methods if method not in {"HEAD","OPTIONS"}}
+    actual={(rule.rule.replace("/api/ashare-paper", "").replace("<int:order_id>","{order_id}").replace("<board_code>","{board_code}").replace("<run_id>","{run_id}"),method.lower()) for rule in app.url_map.iter_rules() if rule.rule.startswith("/api/ashare-paper") for method in rule.methods if method not in {"HEAD","OPTIONS"}}
     documented={(path,method) for path,operations in spec["paths"].items() for method in operations}
     assert actual == documented
 
@@ -271,3 +271,58 @@ def test_corrupt_source_stays_blocked_without_fallback(client, monkeypatch):
     assert all('security_evidence_unavailable' in row['blockers'] for row in candidates)
     assert call(client, '/rules/review', rules[0]).status_code == 400
     assert call(client, '/state', method='GET').json['data']['rules'] == {}
+
+
+def test_research_http_auth_isolation_idempotency_and_no_execution(client, monkeypatch):
+    from app.ashare import research
+    monkeypatch.setattr(research, '_configuration', lambda: {
+        'model_configured': False, 'provider': 'deepseek', 'model': 'deepseek-flash',
+        'blocked_reason': 'needs_model_configuration'})
+    paths = ['/news', '/research/status', '/research/runs', '/research/runs/' + 'a'*32]
+    for path in paths:
+        assert client.get('/api/ashare-paper' + path).status_code == 401
+    assert call(client, '/research/runs', {'idempotency_key': 'test_request'}, token='viewer').status_code == 403
+    assert call(client, '/research/runs', {'idempotency_key': 'test_request'}).json['msg'] == 'paper_account_required'
+    call(client, '/initialize', {'initial_cash': '10000'})
+    call(client, '/settings', {'symbols': ['sz.000001'], 'interval_seconds': 5,
+         'research_preferences': {'topics': ['ai']}}, method='PUT')
+    response = call(client, '/research/runs', {'idempotency_key': 'test_request'})
+    assert response.status_code == 200, response.json
+    run = response.json['data']
+    assert run['status'] == 'queued' and run['execution_allowed'] is False
+    assert run['approval_status'] == 'not_submitted'
+    assert call(client, '/research/runs', {'idempotency_key': 'test_request'}).json['data']['id'] == run['id']
+    assert call(client, '/research/runs', {'idempotency_key': 'second_request'}).json['msg'] == 'research_already_active'
+    assert call(client, '/research/runs/' + run['id'], method='GET').json['data']['id'] == run['id']
+    assert call(client, '/research/runs/' + run['id'], token='other', method='GET').json['msg'] == 'research_run_not_found'
+    assert call(client, '/research/runs', token='other', method='GET').json['data']['items'] == []
+    status = call(client, '/research/status', method='GET').json['data']
+    assert status['execution_allowed'] is False and status['latest_run']['id'] == run['id']
+    assert call(client, '/state', method='GET').json['data']['orders'] == []
+    for private in ('raw_response', 'model_output', 'claim_token', 'tenant_id', 'idempotency_key'):
+        assert private not in run
+
+
+@pytest.mark.parametrize('path', ['/news?limit=51', '/news?limit=1&limit=2',
+    '/research/runs?limit=21', '/research/status?tenant_id=someone',
+    '/research/status?_t=1&_t=2', '/research/runs/not-a-uuid', '/research/runs?limit=-1'])
+def test_research_http_bounded_query(client, path):
+    assert call(client, path, method='GET').status_code == 400
+
+
+@pytest.mark.parametrize('payload', [{}, {'idempotency_key': 'short'},
+    {'idempotency_key': 'unsafe.dot'}, {'idempotency_key': 'valid_key', 'tenant_id': 'user_1'},
+    {'idempotency_key': 'valid_key', 'approve': True}, {'idempotency_key': 12345678}])
+def test_research_http_rejects_untrusted_fields(client, payload):
+    assert call(client, '/research/runs', payload).status_code == 400
+
+
+def test_research_evidence_errors_are_redacted(client, monkeypatch):
+    from app.ashare import research
+    def fail(self):
+        raise research.ResearchError('private-path-or-key-should-not-escape')
+    monkeypatch.setattr(research.ResearchStore, 'status', fail)
+    response = call(client, '/research/status', method='GET')
+    assert response.status_code == 503
+    assert response.json['msg'] == 'research_evidence_unavailable'
+    assert 'private-path' not in response.text
