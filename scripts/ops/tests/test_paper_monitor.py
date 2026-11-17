@@ -6,6 +6,8 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 OPS = Path(__file__).parents[1]
 sys.path.insert(0, str(OPS))
@@ -160,6 +162,112 @@ class MonitorTests(unittest.TestCase):
         report = self.report(value)
         self.assertIn('reference_sync_job_failed', report['issues'])
         self.assertEqual(report['status'], 'attention')
+
+    def test_theme_job_failure_is_not_hidden_by_valid_old_archives(self):
+        value = payload()
+        value['theme_sync_job'] = {'LoadState': 'loaded', 'ActiveState': 'failed', 'Result': 'exit-code'}
+        value['theme_receipts'] = [{'board_code': 'BK0800', 'received_at': '2026-11-16T20:10:00+08:00',
+                                   'evidence_status': 'verified'}]
+        report = self.report(value)
+        self.assertIn('theme_sync_job_failed', report['issues'])
+        self.assertEqual(report['theme_sync_job'], value['theme_sync_job'])
+        self.assertEqual(report['status'], 'attention')
+
+    def test_unavailable_theme_job_health_is_pending_not_assumed_passed(self):
+        value = payload()
+        value['theme_sync_job'] = {'LoadState': 'monitor_unavailable'}
+        report = self.report(value)
+        self.assertIn('theme_sync_job_health_unavailable', report['pending_acceptance'])
+        self.assertFalse(report['completed_backlog'])
+
+    def test_successful_theme_job_does_not_complete_historical_acceptance(self):
+        value = payload()
+        value['theme_sync_job'] = {'LoadState': 'loaded', 'ActiveState': 'inactive', 'Result': 'success'}
+        report = self.report(value)
+        self.assertNotIn('theme_sync_job_failed', report['issues'])
+        self.assertFalse(report['completed_backlog'])
+        self.assertFalse(report['natural_multiday_complete'])
+
+    def test_pre_window_skip_is_not_a_successful_collection(self):
+        value = payload()
+        value['theme_sync_job'] = {'LoadState': 'loaded', 'Result': 'success'}
+        value['theme_sync_status'] = {'status': 'skipped_before_window'}
+        report = self.report(value)
+        self.assertIn('theme_sync_first_window_not_completed', report['pending_acceptance'])
+        self.assertEqual(report['issues'], [])
+
+    def test_theme_job_partial_or_invalid_state_survives_systemd_success(self):
+        for status in ('partial', 'failed', 'invalid_or_unavailable'):
+            value = payload()
+            value['theme_sync_job'] = {'LoadState': 'loaded', 'Result': 'success'}
+            value['theme_sync_status'] = {'status': status}
+            self.assertIn('theme_sync_job_state_' + status, self.report(value)['issues'])
+
+    def test_stale_and_future_theme_job_completion_times_are_not_trusted(self):
+        for time, expected in [('2026-11-15T20:11:00+08:00', 'theme_sync_job_completion_stale'),
+                               ('2026-11-17T10:00:01+08:00', 'theme_sync_job_time_in_future'),
+                               ('invalid', 'theme_sync_job_time_invalid')]:
+            value = payload()
+            value['theme_sync_job'] = {'LoadState': 'loaded', 'Result': 'success'}
+            value['theme_sync_status'] = {'status': 'completed', 'completed_at': time}
+            self.assertIn(expected, self.report(value)['issues'])
+
+    def test_stuck_running_theme_job_is_not_silently_healthy(self):
+        value = payload()
+        value['theme_sync_job'] = {'LoadState': 'loaded', 'Result': 'success'}
+        value['theme_sync_status'] = {'status': 'running', 'started_at': '2026-11-17T09:54:59+08:00'}
+        self.assertIn('theme_sync_job_running_stale', self.report(value)['issues'])
+        value['theme_sync_status']['started_at'] = '2026-11-17T09:59:00+08:00'
+        self.assertNotIn('theme_sync_job_running_stale', self.report(value)['issues'])
+
+    def test_theme_job_state_reader_uses_a_strict_output_allowlist(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            state = Path(temporary)
+            self.assertEqual(monitor.theme_sync_status(state), {'status': 'invalid_or_unavailable'})
+            path = state / 'theme-sync-state.json'
+            scope = {'schema_version': 1, 'project': 'paper-test', 'scheduler_id': 'a' * 32,
+                     'config_version': 'eastmoney-configured-themes-20261118-v1'}
+            (state / 'deployment.json').write_text(json.dumps({'project': 'paper-test'}))
+            marker = state / '.theme-scheduler-initialized'
+            marker.write_text(json.dumps(scope))
+            path.write_text(json.dumps({**scope, 'mode': 'paper', 'attempts': {}, 'approvals_created': 0,
+                'status': 'completed', 'window_date': '2026-11-17',
+                'completed_at': '2026-11-17T20:11:00+08:00', 'unexpected_secret': 'do-not-expose'}))
+            result = monitor.theme_sync_status(state)
+            self.assertEqual(result['window_date'], '2026-11-17')
+            self.assertNotIn('unexpected_secret', result)
+            self.assertNotIn('do-not-expose', json.dumps(result))
+            marker.unlink()
+            self.assertEqual(monitor.theme_sync_status(state), {'status': 'invalid_or_unavailable'})
+            marker.write_text(json.dumps(scope))
+            for bad in ('[]', '{bad', '"do-not-expose"', '{}'):
+                path.write_text(bad)
+                self.assertEqual(monitor.theme_sync_status(state), {'status': 'invalid_or_unavailable'})
+
+    def test_theme_job_state_reader_rejects_symlink_and_oversize(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            state = Path(temporary)
+            target = state / 'target.json'
+            target.write_text('{}')
+            path = state / 'theme-sync-state.json'
+            path.symlink_to(target)
+            self.assertEqual(monitor.theme_sync_status(state), {'status': 'invalid_or_unavailable'})
+            target.unlink()
+            self.assertEqual(monitor.theme_sync_status(state), {'status': 'invalid_or_unavailable'})
+            path.unlink()
+            path.write_text(' ' * 65537)
+            self.assertEqual(monitor.theme_sync_status(state), {'status': 'invalid_or_unavailable'})
+
+    def test_systemd_unavailable_does_not_disappear_from_monitor(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            state = Path(temporary)
+            (state / 'deployment.json').write_text(json.dumps({'project': 'paper-test'}))
+            with patch.object(monitor.paper_stack, 'compose', return_value=['stub']), \
+                    patch.object(monitor.subprocess, 'check_output', side_effect=[json.dumps(payload()), '[]']), \
+                    patch.object(monitor.subprocess, 'run', return_value=SimpleNamespace(returncode=1, stdout='')):
+                result = monitor.collect(state)
+            for key in ('theme_sync_job', 'reference_sync_job'):
+                self.assertEqual(result[key], {'LoadState': 'monitor_unavailable'})
 
     def test_report_permissions_are_private(self):
         with tempfile.TemporaryDirectory() as temporary:

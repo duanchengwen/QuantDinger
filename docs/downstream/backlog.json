@@ -46,7 +46,7 @@
     {
       "id": "reliable_theme_membership",
       "status": "partial_real_current_observation",
-      "acceptance": "Real current receipts: BK0800 人工智能 Nov17 (758 provider / 730 supported / 28 excluded), BK1090 机器人概念 Nov18 (840 / 796 / 44), BK0493 新能源 Nov18 (220 / 215 / 5). All raw pages and DB members verified, readable in the authenticated archive browser. Historical coverage, versioned preference mapping and scheduling remain pending; see THEMES_ACCEPTANCE_CN.md and THEME_WEB_ACCEPTANCE_CN.md."
+      "acceptance": "Real current receipts: BK0800 人工智能 Nov17 (758 provider / 730 supported / 28 excluded), BK1090 机器人概念 Nov18 (840 / 796 / 44), BK0493 新能源 Nov18 (220 / 215 / 5). Raw pages and DB members verified, readable in the archive browser. Nightly collection implemented separately; first natural evening execution, historical coverage and account preference mapping remain pending; see THEMES_ACCEPTANCE_CN.md."
     },
     {
       "id": "scheduled_news_ingestion",
@@ -122,6 +122,11 @@
       "id": "theme_archive_browser",
       "status": "accepted",
       "acceptance": "Human-authenticated read-only theme list/detail APIs and official paper-page archive panel with provenance, missing-data state, bounded pagination and stale-request guards. No ingestion, order, preference or approval writes; see THEME_WEB_ACCEPTANCE_CN.md."
+    },
+    {
+      "id": "scheduled_theme_collection",
+      "status": "installed_pending_natural_run",
+      "acceptance": "Daily 20:10 Asia/Shanghai fixed three-theme job with bounded isolated containers, persisted attempt intentions, same-window unknown/failure no-refetch, raw evidence verification and monitor integration. Actual pre-window skip and installation accepted; first natural evening provider run and host-journal recovery drill remain pending. No strategy approval or trading effects; see THEMES_ACCEPTANCE_CN.md."
     }
   ]
 }

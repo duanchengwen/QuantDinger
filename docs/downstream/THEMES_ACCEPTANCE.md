@@ -60,3 +60,26 @@ The theme regression passed **88 tests on each of Python 3.11 and 3.12**. Indepe
 A new private backup at `runtime/quantdinger-paper-backups/three-themes-20261118/` covers 18 tables and all three theme receipts/raw files. Backup verification passed and all four resumed services are healthy. No new isolated restore drill ran in this follow-up; the earlier drill is not claimed as validation of this new backup's restoration.
 
 These are current observations received on November 18, never November 17 historical knowledge. Historical coverage, versioned preference mapping, scheduled collection, news and automatic research remain unfinished. Midnight sampling is not a second complete trading session. The November 16 BaoStock gap and synchronization failure remain open. No orders, strategy approvals, model requests or extra Feishu messages occurred; live trading and AI promotion remain disabled.
+
+## November 18 follow-up: evening job installation and pre-window validation
+
+A host scheduler now reuses the deployed theme collector without rebuilding images, migrating the database or restarting API/quote services. Collection configuration `eastmoney-configured-themes-20261118-v1` contains the three exact boards above, not a strategy approval. Separate agents implemented and independently reviewed the scheduler; the root agent integrated monitoring, tests, installation and acceptance.
+
+The timer starts daily at 20:10 Asia/Shanghai with at most 60 seconds of randomized delay. Job containers have a 45-second deadline and at most 10 seconds for cleanup; the total budget is 240 seconds, with systemd startup/stop limits of 270/30 seconds. Intent is persisted before each board attempt. Same-window failure or uncertainty permits verification only, without provider retry. Existing success also requires raw-evidence verification before skipping. Uncertain cleanup prevents subsequent board jobs. Missing, corrupt or mismatched journal/marker scope blocks execution. See [theme operations](THEMES.md).
+
+| Check | Actual result |
+| --- | --- |
+| Python 3.11 complete operations suite | 73 passed |
+| Python 3.12 same suite | 73 passed |
+| New scheduler tests, included above | 24, including offline execution of the actual container program with replaced boundaries |
+| Independent offline adversarial checks | 20 passed |
+| Real installation/systemd/existing worker image/data-preservation checks | 22 passed |
+| Ruff, documentation and diff checks | Passed |
+
+Review found and fixed two problems: initialization status disagreed with the monitor contract, and generic nonzero container-removal results were too broadly treated as absence. Absence now needs a separate bounded confirmation, otherwise the outcome remains unknown. Monitoring also reuses marker/project/attempt validation rather than treating lost state as completion.
+
+After installation, `quantdinger-themes-quantdinger-paper.timer` reported its next trigger as **2026-11-18 20:10:42 CST**. An actual systemd invocation and one isolated worker probe explicitly forbidden from ingesting both respected the pre-window guard: zero provider calls, probe container removed. Nine user/session/ledger/trade/theme table fingerprints, private deployment configuration and model-setting hashes were unchanged; scheduling files are mode 0600. No orders, approvals, model calls or Feishu messages occurred.
+
+**The first natural evening collection has not been accepted.** Service success means the pre-window skip worked; journal status remains `initialized` and monitoring retains `theme_sync_first_window_not_completed`. Four persistent services are healthy, existing evidence and backup checks pass, and the known BaoStock failure still keeps overall monitoring at attention. No additional claims were made for complete natural sessions, Windows, remote CI or actual Feishu delivery.
+
+Evidence is in the workspace parent's `work/quantdinger-theme-scheduler-acceptance/`: both JUnit reports, independent review/source hashes, 22-check installation proof, systemd logs and final monitoring. A restricted copy of the initial private scheduling journal was retained, but host reboot, SIGKILL and recovery after lost scheduling state were not exercised. Existing database/evidence-volume backups do not automatically include the host journal; recovery remains pending.

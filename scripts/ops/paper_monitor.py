@@ -10,7 +10,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 import paper_stack
@@ -121,17 +121,46 @@ def collect(state):
     payload['containers'] = [{key: row.get(key) for key in ('Service', 'State', 'Health')} for row in rows]
     project = json.loads((state / 'deployment.json').read_text())['project']
     paper_stack.check_project(project)
-    try:
-        unit = subprocess.run(
-            ['systemctl', '--user', 'show', 'quantdinger-securities-' + project + '.service',
-             '--property=LoadState,ActiveState,Result'], capture_output=True, text=True, timeout=5, check=False,
-        )
-        fields = dict(line.split('=', 1) for line in unit.stdout.splitlines() if '=' in line)
-        if unit.returncode == 0 and fields.get('LoadState') == 'loaded':
-            payload['reference_sync_job'] = fields
-    except (OSError, subprocess.SubprocessError):
-        payload['reference_sync_job'] = {'LoadState': 'monitor_unavailable'}
+    for key, prefix in (('reference_sync_job', 'quantdinger-securities-'),
+                        ('theme_sync_job', 'quantdinger-themes-')):
+        try:
+            unit = subprocess.run(
+                ['systemctl', '--user', 'show', prefix + project + '.service',
+                 '--property=LoadState,ActiveState,Result'], capture_output=True, text=True, timeout=5, check=False,
+            )
+            fields = dict(line.split('=', 1) for line in unit.stdout.splitlines() if '=' in line)
+            if unit.returncode == 0 and fields.get('LoadState') == 'loaded':
+                payload[key] = fields
+            elif unit.returncode != 0 and fields.get('LoadState') != 'not-found':
+                payload[key] = {'LoadState': 'monitor_unavailable'}
+        except (OSError, subprocess.SubprocessError):
+            payload[key] = {'LoadState': 'monitor_unavailable'}
+    if payload.get('theme_sync_job', {}).get('LoadState') == 'loaded':
+        payload['theme_sync_status'] = theme_sync_status(state)
     return payload
+
+
+def theme_sync_status(state):
+    """Expose only validated operational fields, never arbitrary state contents."""
+    try:
+        from theme_scheduler import load_journal
+        # Use the runner's marker/project/attempt validation as well as the
+        # public summary schema; a missing marker must not look completed.
+        value = load_journal(state)
+        allowed = {'completed', 'partial', 'failed', 'skipped_before_window', 'running', 'initialized'}
+        if (value.get('schema_version') != 1 or value.get('mode') != 'paper'
+                or value.get('config_version') != 'eastmoney-configured-themes-20261118-v1'
+                or value.get('status') not in allowed):
+            raise ValueError('invalid theme job schema')
+        result = {'status': value['status'], 'config_version': value['config_version']}
+        for key in ('started_at', 'completed_at'):
+            if value.get(key) is not None:
+                result[key] = timestamp(value[key]).isoformat()
+        if value.get('window_date') is not None:
+            result['window_date'] = date.fromisoformat(value['window_date']).isoformat()
+        return result
+    except (OSError, ValueError, TypeError, AttributeError, KeyError):
+        return {'status': 'invalid_or_unavailable'}
 
 
 def backup_free_bytes(root):
@@ -218,6 +247,37 @@ def assess(payload, backup, *, target_days=5):
         issues.append('reference_sync_job_failed')
     if job.get('LoadState') == 'monitor_unavailable':
         pending.append('reference_sync_job_health_unavailable')
+    theme_job = payload.get('theme_sync_job', {})
+    if theme_job.get('Result') not in (None, '', 'success'):
+        issues.append('theme_sync_job_failed')
+    if theme_job.get('LoadState') == 'monitor_unavailable':
+        pending.append('theme_sync_job_health_unavailable')
+    theme_status = payload.get('theme_sync_status', {})
+    if theme_job.get('LoadState') == 'loaded':
+        status = theme_status.get('status', 'not_observed')
+        if status in ('not_observed', 'initialized', 'skipped_before_window'):
+            pending.append('theme_sync_first_window_not_completed')
+        elif status in ('partial', 'failed', 'invalid_or_unavailable'):
+            issues.append('theme_sync_job_state_' + status)
+        for key in ('started_at', 'completed_at'):
+            if theme_status.get(key):
+                try:
+                    if timestamp(theme_status[key]) > now:
+                        issues.append('theme_sync_job_time_in_future')
+                except (TypeError, ValueError):
+                    issues.append('theme_sync_job_time_invalid')
+        if status == 'completed':
+            try:
+                if (now - timestamp(theme_status['completed_at'])).total_seconds() > 30 * 3600:
+                    issues.append('theme_sync_job_completion_stale')
+            except (KeyError, TypeError, ValueError):
+                issues.append('theme_sync_job_time_invalid')
+        if status == 'running':
+            try:
+                if (now - timestamp(theme_status['started_at'])).total_seconds() > 300:
+                    issues.append('theme_sync_job_running_stale')
+            except (KeyError, TypeError, ValueError):
+                issues.append('theme_sync_job_time_invalid')
     if payload.get('data_free_bytes', 0) < 100 * 1024 * 1024:
         issues.append('data_volume_capacity_low')
     if backup.get('free_bytes', 0) < 500 * 1024 * 1024:
@@ -258,6 +318,8 @@ def assess(payload, backup, *, target_days=5):
             'natural_multiday_complete': False,
             'coverage': 'sampled_not_continuous_uptime_proof',
             'completed_backlog': False, 'backup': backup, 'reference_sync_job': job,
+            'theme_sync_job': theme_job,
+            'theme_sync_status': theme_status,
             'daily_report_count': len(payload['daily_reports']),
             'data_free_bytes': payload.get('data_free_bytes'),
             'reference_schema_present': payload.get('reference_schema_present', False),
