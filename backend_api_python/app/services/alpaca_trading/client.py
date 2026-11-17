@@ -215,6 +215,8 @@ class AlpacaClient:
     """
 
     def __init__(self, config: Optional[AlpacaConfig] = None):
+        from app.ashare.safety import deny_broker_access
+        deny_broker_access()
         self.config = config or AlpacaConfig()
         self._trading_client = None
         self._stock_data_client = None
@@ -235,6 +237,8 @@ class AlpacaClient:
 
     def connect(self) -> bool:
         """Initialize Alpaca client and verify credentials by fetching account."""
+        from app.ashare.safety import deny_broker_access
+        deny_broker_access()
         try:
             api_key = (self.config.api_key or "").strip()
             secret_key = (self.config.secret_key or "").strip()

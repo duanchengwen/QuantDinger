@@ -91,6 +91,15 @@ from app.utils.request_guard import RequestGuardError, cache_key, guarded_cached
 logger = get_logger(__name__)
 
 quick_trade_blp = Blueprint('quick_trade', __name__)
+
+
+@quick_trade_blp.before_request
+def _reject_downstream_broker_mutations():
+    if request.method not in {"GET", "HEAD", "OPTIONS"}:
+        return jsonify({"code": 403, "msg": "ASHARE_PAPER_ONLY", "data": None}), 403
+    return None
+
+
 quick_trade_blp.before_request(open_quick_trade_transport)
 quick_trade_blp.teardown_request(close_quick_trade_transport)
 
@@ -240,6 +249,8 @@ def place_order(body):
       sl_price       (float)  - exchange-native stop-loss price for swaps
       source         (str)    - "ai_radar" / "ai_analysis" / "indicator" / "manual"
     """
+    return jsonify({"code": 403, "msg": "ASHARE_PAPER_ONLY", "data": None}), 403
+
     exchange_id = ""
     request_started = time.monotonic()
     try:

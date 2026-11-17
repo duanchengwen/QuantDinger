@@ -1,0 +1,12 @@
+-r requirements-ashare.txt
+pytest==9.2.0
+pytest-timeout==2.4.0
+ruff==0.17.5
+# Import the upstream HTTP/worker boundaries exercised by safety tests.
+flask-smorest==0.47.0
+marshmallow==4.4.0
+pandas==3.1.1
+PyJWT==2.15.1
+PyYAML==6.0.3
+cryptography==50.0.2
+prometheus-client==0.26.0

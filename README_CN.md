@@ -1,3 +1,5 @@
+> 本 Fork 的 A 股模拟交易入口：[运行说明](docs/downstream/PAPER_WORKER_CN.md) · [验收报告](docs/downstream/ACCEPTANCE_CN.md)。本分支禁止真实下单和 Agent 写操作；以下保留官方产品介绍，其中实盘功能在本分支不可用。
+
 <div align="center">
   <a href="https://github.com/OpenByteInc/QuantDinger">
     <picture>

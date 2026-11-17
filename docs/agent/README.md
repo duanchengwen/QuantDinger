@@ -1,5 +1,10 @@
 # Agent documentation (English)
 
+## A-share downstream policy
+
+This fork restricts the Agent Gateway to GET, HEAD and OPTIONS. All POST, PUT, PATCH and DELETE calls return HTTP 403 `ASHARE_AGENT_READ_ONLY` when the gateway is enabled (503 when disabled), including research job creation, notification changes and token administration. Agents cannot modify or promote running strategies. The original operation descriptions remain in OpenAPI for upstream tracking; they do not grant write capability in this build. Broker access is also hard-disabled and cannot be enabled with environment flags. Human administrators must use the separately controlled human interface for token maintenance.
+
+
 This folder holds **agent-facing** material for coding assistants (Cursor, Claude Code, Codex, CLI bots, etc.).
 
 | Document | Purpose |

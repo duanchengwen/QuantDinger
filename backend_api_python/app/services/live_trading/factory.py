@@ -221,6 +221,8 @@ def _demo_enabled(cfg: Dict[str, Any]) -> bool:
 
 
 def create_client(exchange_config: Dict[str, Any], *, market_type: str = "swap") -> BaseRestClient:
+    from app.ashare.safety import deny_broker_access
+    deny_broker_access()
     if not isinstance(exchange_config, dict):
         raise LiveTradingError("Invalid exchange_config")
     exchange_id = _get(exchange_config, "exchange_id", "exchangeId").lower()
@@ -384,6 +386,8 @@ def create_ibkr_client(exchange_config: Dict[str, Any]):
     (7) when credentials omit ibkr_client_id, so manual testing does not evict the worker
     (and vice versa).
     """
+    from app.ashare.safety import deny_broker_access
+    deny_broker_access()
     global IBKRClient, IBKRConfig
 
     from app.utils.local_brokers import require_local_desktop_brokers_allowed
@@ -448,6 +452,8 @@ def create_alpaca_client(exchange_config: Dict[str, Any]):
     Unlike IBKR, Alpaca is stateless REST — no terminal/gateway needed,
     so it's the recommended USStock broker on cloud / SaaS deployments.
     """
+    from app.ashare.safety import deny_broker_access
+    deny_broker_access()
     global AlpacaClient, AlpacaConfig
 
     if AlpacaClient is None or AlpacaConfig is None:
@@ -495,6 +501,8 @@ def create_alpaca_client(exchange_config: Dict[str, Any]):
 
 
 def create_tiger_client(exchange_config: Dict[str, Any]):
+    from app.ashare.safety import deny_broker_access
+    deny_broker_access()
     from app.services.openapi_brokers import TigerClient, TigerConfig
 
     tiger_id = _get(exchange_config, "tiger_id", "tigerId")
@@ -518,6 +526,8 @@ def create_tiger_client(exchange_config: Dict[str, Any]):
 
 
 def create_webull_client(exchange_config: Dict[str, Any]):
+    from app.ashare.safety import deny_broker_access
+    deny_broker_access()
     from app.services.openapi_brokers import WebullClient, WebullConfig
 
     app_key = _get(exchange_config, "app_key", "appKey")

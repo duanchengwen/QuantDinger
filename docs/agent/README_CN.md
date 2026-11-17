@@ -1,5 +1,10 @@
 # Agent 与 MCP 文档
 
+## A 股二开版本限制
+
+本 Fork 的 Agent Gateway 只允许 GET、HEAD、OPTIONS。网关启用时，所有 POST、PUT、PATCH、DELETE 在业务处理前返回 HTTP 403 `ASHARE_AGENT_READ_ONLY`；关闭时仍返回 503。限制也涵盖研究任务创建、通知修改和令牌管理，防止 AI 修改或晋级运行策略。OpenAPI 保留官方操作说明用于跟进更新，但不代表此版本开放写权限。真实券商访问同时硬禁，环境开关不能开启。人工维护令牌需通过单独控制的人类管理入口。
+
+
 本目录说明外部 AI Agent 如何通过受控接口使用 QuantDinger。建议人工接入者从中文指南开始；自动化工具应以 OpenAPI 和英文标识符为准。
 
 ## 推荐阅读顺序

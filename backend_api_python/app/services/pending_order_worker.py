@@ -1631,6 +1631,8 @@ class PendingOrderWorker(
         """
         Execute a pending order using direct exchange REST clients.
         """
+        self._mark_failed(order_id=order_id, error="ASHARE_PAPER_ONLY")
+        return
         _console_print = console_print
 
         try:

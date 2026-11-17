@@ -1,0 +1,31 @@
+{
+  "mode": "paper",
+  "ai_auto_promotion": false,
+  "tenant_id": "local",
+  "account_id": "paper-demo",
+  "initial_cash": "100000.00",
+  "symbols": ["sz.000001"],
+  "interval_seconds": 5,
+  "rules": {
+    "sz.000001": {
+      "reviewed": false,
+      "evidence": "REPLACE_WITH_DATED_SOURCE_AND_OPERATOR_REVIEW",
+      "trading_day": "YYYY-MM-DD",
+      "is_trading_day": false,
+      "suspended": null,
+      "st": null,
+      "limit_down": null,
+      "limit_up": null
+    }
+  },
+  "strategy": {
+    "enabled": false,
+    "approved_by_operator": false,
+    "kind": "buy_once_below",
+    "id": "human-reviewed-example-001",
+    "symbol": "sz.000001",
+    "quantity": 100,
+    "threshold": "1.00",
+    "limit_price": "1.00"
+  }
+}

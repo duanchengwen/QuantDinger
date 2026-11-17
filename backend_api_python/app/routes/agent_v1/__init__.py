@@ -11,7 +11,7 @@ This package is intentionally separate from the human-facing routes so:
 """
 from __future__ import annotations
 
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request
 
 from app.services.settings.capabilities import is_agent_gateway_enabled
 from app.utils.logger import get_logger
@@ -32,6 +32,15 @@ def _require_agent_gateway_enabled():
             "retriable": False,
             "data": None,
         }), 503
+    from app.ashare.safety import agent_method_allowed
+    if not agent_method_allowed(request.method):
+        return jsonify({
+            "code": 403,
+            "message": "ASHARE_AGENT_READ_ONLY",
+            "details": None,
+            "retriable": False,
+            "data": None,
+        }), 403
     return None
 
 

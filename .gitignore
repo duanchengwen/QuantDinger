@@ -24,6 +24,7 @@
 .env.local
 .env.*.local
 backend.env
+*.local.json
 backend.env.bak.*
 backend_api_python/.env
 .codex-review/

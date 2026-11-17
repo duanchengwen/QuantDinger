@@ -1,9 +1,10 @@
 {
   "openapi": "3.0.3",
+  "x-ashare-downstream-policy": { "agent_mutations": "denied", "broker_access": "denied", "error": "ASHARE_AGENT_READ_ONLY" },
   "info": {
     "title": "QuantDinger Agent Gateway",
     "version": "1.0.0",
-    "description": "Versioned, scoped surface for AI agents. Distinct from the human web API (/api/...). All routes except /health require a Bearer agent token. See docs/agent/AGENT_QUICKSTART.md and docs/agent/MCP_SETUP.md."
+    "description": "A-share downstream: all POST/PUT/PATCH/DELETE requests are denied with HTTP 403 ASHARE_AGENT_READ_ONLY before handlers run; read access retains normal authentication. Upstream mutation descriptions below are retained for merge compatibility and are unavailable in this build. Versioned, scoped surface for AI agents. Distinct from the human web API (/api/...). All routes except /health require a Bearer agent token. See docs/agent/AGENT_QUICKSTART.md and docs/agent/MCP_SETUP.md."
   },
   "servers": [
     { "url": "http://localhost:8888" }
@@ -268,7 +269,7 @@
         "x-scope-class": "W",
         "parameters": [{ "in": "header", "name": "Idempotency-Key", "required": true, "schema": { "type": "string", "maxLength": 120 } }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StrategyDeploymentRequest" } } } },
-        "responses": { "200": { "description": "Created" } }
+        "responses": { "403": { "description": "Downstream read-only policy: ASHARE_AGENT_READ_ONLY" }, "200": { "description": "Created" } }
       }
     },
     "/api/agent/v1/strategies/{strategy_id}": {
@@ -287,7 +288,7 @@
           { "in": "header", "name": "Idempotency-Key", "required": true, "schema": { "type": "string", "maxLength": 120 } }
         ],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StrategyDeploymentPatch" } } } },
-        "responses": { "200": { "description": "OK" }, "400": { "description": "Unsupported or invalid deployment field" } }
+        "responses": { "403": { "description": "Downstream read-only policy: ASHARE_AGENT_READ_ONLY" }, "200": { "description": "OK" }, "400": { "description": "Unsupported or invalid deployment field" } }
       }
     },
     "/api/agent/v1/strategies/{strategy_id}/stop": {
@@ -299,7 +300,7 @@
           { "in": "path", "name": "strategy_id", "required": true, "schema": { "type": "integer" } },
           { "in": "header", "name": "Idempotency-Key", "required": true, "schema": { "type": "string", "maxLength": 120 } }
         ],
-        "responses": { "200": { "description": "Stopped" }, "404": { "description": "Strategy not found" } }
+        "responses": { "403": { "description": "Downstream read-only policy: ASHARE_AGENT_READ_ONLY" }, "200": { "description": "Stopped" }, "404": { "description": "Strategy not found" } }
       }
     },
     "/api/agent/v1/strategy-sources/authoring-contract": {
@@ -337,7 +338,7 @@
             }
           }
         },
-        "responses": { "200": { "description": "Compiled manifest" }, "400": { "description": "Invalid Strategy API V2 source" } }
+        "responses": { "403": { "description": "Downstream read-only policy: ASHARE_AGENT_READ_ONLY" }, "200": { "description": "Compiled manifest" }, "400": { "description": "Invalid Strategy API V2 source" } }
       }
     },
     "/api/agent/v1/strategy-sources": {
@@ -354,7 +355,7 @@
         "x-scope-class": "W",
         "parameters": [{ "in": "header", "name": "Idempotency-Key", "required": true, "schema": { "type": "string", "maxLength": 120 } }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/StrategySourceWriteRequest" } } } },
-        "responses": { "200": { "description": "Created" }, "400": { "description": "Compile or validation failure" } }
+        "responses": { "403": { "description": "Downstream read-only policy: ASHARE_AGENT_READ_ONLY" }, "200": { "description": "Created" }, "400": { "description": "Compile or validation failure" } }
       }
     },
     "/api/agent/v1/strategy-sources/{source_id}": {
@@ -396,7 +397,7 @@
           "required": true,
           "content": { "application/json": { "schema": { "type": "object", "required": ["confirm"], "properties": { "confirm": { "type": "boolean", "enum": [true] } } } } }
         },
-        "responses": { "200": { "description": "Restored" }, "400": { "description": "Explicit confirmation missing" }, "404": { "description": "Not found" } }
+        "responses": { "403": { "description": "Downstream read-only policy: ASHARE_AGENT_READ_ONLY" }, "200": { "description": "Restored" }, "400": { "description": "Explicit confirmation missing" }, "404": { "description": "Not found" } }
       }
     },
     "/api/agent/v1/runtime/overview": {
@@ -415,7 +416,7 @@
           { "in": "header", "name": "Idempotency-Key", "required": true, "schema": { "type": "string", "maxLength": 120 } }
         ],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BacktestRequest" } } } },
-        "responses": { "202": { "description": "Queued" } }
+        "responses": { "403": { "description": "Downstream read-only policy: ASHARE_AGENT_READ_ONLY" }, "202": { "description": "Queued" } }
       }
     },
     "/api/agent/v1/indicators/authoring-contract": {
@@ -442,7 +443,7 @@
           "required": true,
           "content": { "application/json": { "schema": { "$ref": "#/components/schemas/IndicatorSaveRequest" } } }
         },
-        "responses": { "200": { "description": "Saved" }, "400": { "description": "Validation failed or code too large" } }
+        "responses": { "403": { "description": "Downstream read-only policy: ASHARE_AGENT_READ_ONLY" }, "200": { "description": "Saved" }, "400": { "description": "Validation failed or code too large" } }
       }
     },
     "/api/agent/v1/indicators/validate": {
@@ -453,7 +454,7 @@
           "required": true,
           "content": { "application/json": { "schema": { "$ref": "#/components/schemas/IndicatorValidateRequest" } } }
         },
-        "responses": { "200": { "description": "Validation result" } }
+        "responses": { "403": { "description": "Downstream read-only policy: ASHARE_AGENT_READ_ONLY" }, "200": { "description": "Validation result" } }
       }
     },
     "/api/agent/v1/indicators/link-config": {
@@ -462,7 +463,7 @@
         "x-scope-class": "W",
         "parameters": [{ "in": "header", "name": "Idempotency-Key", "required": true, "schema": { "type": "string", "maxLength": 120 } }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
-        "responses": { "200": { "description": "Linked config" } }
+        "responses": { "403": { "description": "Downstream read-only policy: ASHARE_AGENT_READ_ONLY" }, "200": { "description": "Linked config" } }
       }
     },
     "/api/agent/v1/indicators/{indicator_id}": {
@@ -519,7 +520,7 @@
           { "in": "path", "name": "job_id", "required": true, "schema": { "type": "string" } },
           { "in": "header", "name": "Idempotency-Key", "required": true, "schema": { "type": "string", "maxLength": 120 } }
         ],
-        "responses": { "200": { "description": "Cancelled" }, "409": { "description": "Job already terminal" } }
+        "responses": { "403": { "description": "Downstream read-only policy: ASHARE_AGENT_READ_ONLY" }, "200": { "description": "Cancelled" }, "409": { "description": "Job already terminal" } }
       }
     },
     "/api/agent/v1/research/universes": {
@@ -662,7 +663,7 @@
             }
           }
         },
-        "responses": { "200": { "description": "Added" } }
+        "responses": { "403": { "description": "Downstream read-only policy: ASHARE_AGENT_READ_ONLY" }, "200": { "description": "Added" } }
       },
       "delete": {
         "summary": "Remove a watchlist item",
@@ -680,7 +681,7 @@
             }
           }
         },
-        "responses": { "200": { "description": "Removed" } }
+        "responses": { "403": { "description": "Downstream read-only policy: ASHARE_AGENT_READ_ONLY" }, "200": { "description": "Removed" } }
       }
     },
     "/api/agent/v1/trading/accounts": {
@@ -764,7 +765,7 @@
         "x-scope-class": "N",
         "parameters": [{ "in": "header", "name": "Idempotency-Key", "required": true, "schema": { "type": "string", "maxLength": 120 } }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
-        "responses": { "200": { "description": "Created" } }
+        "responses": { "403": { "description": "Downstream read-only policy: ASHARE_AGENT_READ_ONLY" }, "200": { "description": "Created" } }
       }
     },
     "/api/agent/v1/notifications/signal-alerts/{task_id}": {
@@ -775,7 +776,7 @@
           { "in": "path", "name": "task_id", "required": true, "schema": { "type": "integer" } },
           { "in": "header", "name": "Idempotency-Key", "required": true, "schema": { "type": "string", "maxLength": 120 } }
         ],
-        "responses": { "200": { "description": "Updated" } }
+        "responses": { "403": { "description": "Downstream read-only policy: ASHARE_AGENT_READ_ONLY" }, "200": { "description": "Updated" } }
       },
       "delete": {
         "summary": "Delete a signal-alert task",
@@ -784,7 +785,7 @@
           { "in": "path", "name": "task_id", "required": true, "schema": { "type": "integer" } },
           { "in": "header", "name": "Idempotency-Key", "required": true, "schema": { "type": "string", "maxLength": 120 } }
         ],
-        "responses": { "200": { "description": "Deleted" } }
+        "responses": { "403": { "description": "Downstream read-only policy: ASHARE_AGENT_READ_ONLY" }, "200": { "description": "Deleted" } }
       }
     },
     "/api/agent/v1/notifications/signal-alerts/{task_id}/status": {
@@ -795,7 +796,7 @@
           { "in": "path", "name": "task_id", "required": true, "schema": { "type": "integer" } },
           { "in": "header", "name": "Idempotency-Key", "required": true, "schema": { "type": "string", "maxLength": 120 } }
         ],
-        "responses": { "200": { "description": "Updated" } }
+        "responses": { "403": { "description": "Downstream read-only policy: ASHARE_AGENT_READ_ONLY" }, "200": { "description": "Updated" } }
       }
     },
     "/api/agent/v1/notifications/signal-alerts/{task_id}/run": {
@@ -806,7 +807,7 @@
           { "in": "path", "name": "task_id", "required": true, "schema": { "type": "integer" } },
           { "in": "header", "name": "Idempotency-Key", "required": true, "schema": { "type": "string", "maxLength": 120 } }
         ],
-        "responses": { "200": { "description": "Evaluated" } }
+        "responses": { "403": { "description": "Downstream read-only policy: ASHARE_AGENT_READ_ONLY" }, "200": { "description": "Evaluated" } }
       }
     },
     "/api/agent/v1/portfolio/positions": {
@@ -840,7 +841,7 @@
         "x-scope-class": "T",
         "parameters": [{ "in": "header", "name": "Idempotency-Key", "required": true, "schema": { "type": "string", "maxLength": 120 } }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["confirm"], "properties": { "confirm": { "type": "boolean", "enum": [true] } } } } } },
-        "responses": { "200": { "description": "OK" } }
+        "responses": { "403": { "description": "Downstream read-only policy: ASHARE_AGENT_READ_ONLY" }, "200": { "description": "OK" } }
       }
     },
     "/api/agent/v1/admin/tokens": {
@@ -848,7 +849,7 @@
         "summary": "Issue a new agent token (admin only; full token shown ONCE)",
         "security": [{ "HumanJWT": [] }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
-        "responses": { "200": { "description": "Issued", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TokenIssued" } } } } }
+        "responses": { "403": { "description": "Downstream read-only policy: ASHARE_AGENT_READ_ONLY" }, "200": { "description": "Issued", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TokenIssued" } } } } }
       },
       "get": {
         "summary": "List tokens for tenant (admin only; no secrets)",
@@ -861,7 +862,7 @@
         "summary": "Revoke a token (admin only)",
         "security": [{ "HumanJWT": [] }],
         "parameters": [{ "in": "path", "name": "token_id", "required": true, "schema": { "type": "integer" } }],
-        "responses": { "200": { "description": "Revoked" } }
+        "responses": { "403": { "description": "Downstream read-only policy: ASHARE_AGENT_READ_ONLY" }, "200": { "description": "Revoked" } }
       }
     },
     "/api/agent/v1/admin/audit": {

@@ -1,3 +1,5 @@
+> A-share paper-only downstream: [run guide](docs/downstream/PAPER_WORKER.md) · [acceptance report](docs/downstream/ACCEPTANCE.md). Real brokerage and Agent mutations are disabled in this branch. The upstream product overview below is retained; its live features are unavailable here.
+
 <div align="center">
   <a href="https://github.com/OpenByteInc/QuantDinger">
     <picture>

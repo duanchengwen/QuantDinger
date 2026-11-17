@@ -1,0 +1,7 @@
+# Minimal downstream paper worker; no exchange/broker SDK dependency.
+Flask==3.1.3
+flask-cors==6.0.5
+python-dotenv==1.2.4
+psycopg2-binary==2.9.13
+requests==2.34.2
+tzdata==2026.2

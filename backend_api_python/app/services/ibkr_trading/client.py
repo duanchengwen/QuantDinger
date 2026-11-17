@@ -94,6 +94,8 @@ class IBKRClient:
     """
     
     def __init__(self, config: Optional[IBKRConfig] = None):
+        from app.ashare.safety import deny_broker_access
+        deny_broker_access()
         self.config = config or IBKRConfig()
         self._ib = None
         self._connected = False
@@ -114,6 +116,8 @@ class IBKRClient:
         Returns:
             True if connected successfully
         """
+        from app.ashare.safety import deny_broker_access
+        deny_broker_access()
         try:
             require_local_desktop_brokers_allowed()
         except PermissionError as exc:

@@ -341,6 +341,8 @@ def submit_binance_order(
     futures: bool,
     demo: bool,
 ) -> Optional[Dict[str, Any]]:
+    from app.ashare.safety import deny_broker_access
+    deny_broker_access()
     if not websocket_order_entry_enabled():
         return None
     if futures:
@@ -430,6 +432,8 @@ def submit_okx_order(
     body: Dict[str, Any],
     simulated: bool,
 ) -> Optional[Dict[str, Any]]:
+    from app.ashare.safety import deny_broker_access
+    deny_broker_access()
     if not websocket_order_entry_enabled():
         return None
     url = "wss://wspap.okx.com/ws/v5/private" if simulated else "wss://ws.okx.com/ws/v5/private"
@@ -481,6 +485,8 @@ def submit_bybit_order(
     broker_referer: str,
     timestamp_ms: Optional[int] = None,
 ) -> Optional[Dict[str, Any]]:
+    from app.ashare.safety import deny_broker_access
+    deny_broker_access()
     if not websocket_order_entry_enabled():
         return None
     host = str(base_url or "").lower()
@@ -587,6 +593,8 @@ def submit_bitget_order(
     simulated: bool,
     api_code: str,
 ) -> Optional[Dict[str, Any]]:
+    from app.ashare.safety import deny_broker_access
+    deny_broker_access()
     if not websocket_order_entry_enabled():
         return None
     category = str(body.get("category") or "").strip().lower()
@@ -693,6 +701,8 @@ def submit_gate_order(
     futures: bool,
     channel_id: str,
 ) -> Optional[Dict[str, Any]]:
+    from app.ashare.safety import deny_broker_access
+    deny_broker_access()
     if not websocket_order_entry_enabled():
         return None
     testnet = "testnet" in str(base_url or "").lower()

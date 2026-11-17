@@ -161,6 +161,8 @@ def is_file_descriptor_exhausted(exc: BaseException | str) -> bool:
 
 class BaseRestClient:
     def __init__(self, base_url: str, timeout_sec: float = 15.0):
+        from app.ashare.safety import deny_broker_access
+        deny_broker_access()
         self.base_url = (base_url or "").rstrip("/")
         self.timeout_sec = float(timeout_sec)
 
@@ -180,6 +182,8 @@ class BaseRestClient:
         headers: Optional[Dict[str, str]] = None,
         data: Optional[Any] = None,
     ) -> Tuple[int, Dict[str, Any], str]:
+        from app.ashare.safety import deny_broker_access
+        deny_broker_access()
         url = self._url(path)
         method_name = str(method or "GET").upper()
         started_at = time.perf_counter()

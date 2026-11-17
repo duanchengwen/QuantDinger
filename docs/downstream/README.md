@@ -2,14 +2,14 @@
 
 [简体中文](README_CN.md)
 
-The development fork is https://github.com/duanchengwen/QuantDinger and the upstream is https://github.com/OpenByteInc/QuantDinger. See [baseline.json](baseline.json) for the pinned starting revision. This change establishes repository maintenance only: the existing A-share modules are not integrated and no services have been deployed. These requirements are not implemented runtime protections.
+The development fork is https://github.com/duanchengwen/QuantDinger and the upstream is https://github.com/OpenByteInc/QuantDinger. See [baseline.json](baseline.json) for the pinned starting revision. The first independent paper worker is implemented; see its [run guide](PAPER_WORKER.md) for scope. The following maintenance requirements do not imply that all product integration and acceptance work is complete.
 
 ## Branches and remotes
 
 - `origin` is the user's fork; `upstream` is the official repository.
 - Keep `main` at an upstream baseline and validated downstream changes on `ashare-paper`, using short-lived feature branches.
 - The local default push remote is `origin`; the upstream push URL is `DISABLED`. Git configuration does not travel with clones, so repeat it in new environments.
-- The development branch has not been pushed and remote branch protection has not been configured.
+- Development is pushed to `origin/ashare-paper`; remote branch protection has not been configured.
 
 For a new checkout (switch to existing branches instead of overwriting them):
 

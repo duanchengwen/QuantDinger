@@ -271,6 +271,9 @@ class TradingExecutor:
         if execution_mode != "live":
             return
 
+        from app.ashare.safety import deny_broker_access
+        deny_broker_access()
+
         user_id = int(strategy.get("user_id") or 0)
         from app.services.strategy_live_guard import (
             find_live_strategy_conflict,

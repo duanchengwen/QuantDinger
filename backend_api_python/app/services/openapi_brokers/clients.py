@@ -124,6 +124,8 @@ class TigerConfig:
 
 class TigerClient:
     def __init__(self, config: TigerConfig):
+        from app.ashare.safety import deny_broker_access
+        deny_broker_access()
         if not config.tiger_id.strip() or not config.account_id.strip() or not config.private_key.strip():
             raise ValueError("brokerAccounts.credentialsRequired")
         environment = config.environment.strip().lower()
@@ -179,6 +181,8 @@ class TigerClient:
         return self.client
 
     def connect(self) -> bool:
+        from app.ashare.safety import deny_broker_access
+        deny_broker_access()
         assets = self._ensure_client().get_assets(account=self.account_id, segment=False, market_value=False)
         if not assets:
             raise BrokerApiError("brokerAccounts.brokerAccountUnavailable")
@@ -432,6 +436,8 @@ class WebullClient(_HttpClient):
     }
 
     def __init__(self, config: WebullConfig):
+        from app.ashare.safety import deny_broker_access
+        deny_broker_access()
         if not config.app_key.strip() or not config.app_secret.strip():
             raise ValueError("brokerAccounts.credentialsRequired")
         environment = config.environment.strip().lower()
@@ -505,6 +511,8 @@ class WebullClient(_HttpClient):
         return accounts
 
     def connect(self) -> bool:
+        from app.ashare.safety import deny_broker_access
+        deny_broker_access()
         accounts = self.get_accounts()
         if not accounts:
             raise BrokerApiError("brokerAccounts.noAuthorizedAccounts")

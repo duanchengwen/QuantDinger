@@ -2,14 +2,14 @@
 
 [English](README.md)
 
-开发仓库为 https://github.com/duanchengwen/QuantDinger ，官方仓库为 https://github.com/OpenByteInc/QuantDinger 。固定起点见 [baseline.json](baseline.json)。当前仅完成仓库接入与维护约定，尚未将已有 A 股模块接入本系统，也未部署服务。本文件的约束不是已实现的运行时防护。
+开发仓库为 https://github.com/duanchengwen/QuantDinger ，官方仓库为 https://github.com/OpenByteInc/QuantDinger 。固定起点见 [baseline.json](baseline.json)。首版独立盘中模拟进程已实现，运行方式与范围见 [模拟运行指南](PAPER_WORKER_CN.md)。以下是持续维护要求，不代表全部产品集成和验收已完成。
 
 ## 分支和远程
 
 - `origin` 指向用户 Fork，`upstream` 指向官方。
 - `main` 保持官方基线，`ashare-paper` 承载经测试的二开改动；功能使用短期分支。
 - 本地默认推送目标设为 `origin`，`upstream` 的 push URL 设为 `DISABLED`。这些 Git 配置不随克隆传播，新环境需重新设置。
-- 尚未向 GitHub 推送开发分支或设置远程分支保护。
+- 开发推送至 `origin/ashare-paper`；远程分支保护尚未设置。
 
 新环境可按以下方式准备；已有分支时直接切换，勿覆盖：
 
