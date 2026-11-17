@@ -2,6 +2,8 @@
 
 [简体中文](WEB_WORKSPACE_CN.md)
 
+For sustained operation use the [isolated durable deployment](DEPLOYMENT.md) and [health checks/daily reports](OPERATIONS.md). Commands below are for local development. See [controlled multi-session validation](MULTIDAY_VALIDATION.md) for replay acceptance.
+
 The extension adds **A-share paper** (`/#/ashare-paper`) to the official Vue shell, reusing login, JWT, roles and localization. It shows quotes/freshness, virtual cash/positions, manual buy/sell/cancel, orders/fills, daily review, watchlists and Feishu setup. HTTP performs authentication, validation and persistence; an independent worker collects and matches.
 
 ## Deployment
@@ -33,7 +35,7 @@ From the repository root, using the official frontend Node/pnpm requirements:
 ```bash
 python scripts/frontend/prepare_ashare_frontend.py ../work/quantdinger-frontend --build
 cd ../work/quantdinger-frontend
-VITE_DEV_PROXY_TARGET=http://127.0.0.1:5017 pnpm preview --host 127.0.0.1 --port 5177
+VITE_DEV_PROXY_TARGET=http://127.0.0.1:5017 pnpm dev --host 127.0.0.1 --port 5177
 ```
 
 PowerShell uses `$env:NAME` assignments. These localhost commands are for development/acceptance. For sustained deployment, retain the official reverse proxy/production WSGI setup and supervise API and worker separately with restart policies. Do not publicly expose a development server.

@@ -2,6 +2,8 @@
 
 [English](WEB_WORKSPACE.md)
 
+日常长期运行请使用[独立持久化部署](DEPLOYMENT_CN.md)，配合[健康检查与日报](OPERATIONS_CN.md)。下方命令仅供本地开发；跨日受控验证见[验证指南](MULTIDAY_VALIDATION_CN.md)。
+
 本扩展在官方 Vue 前端的菜单中加入 **A 股模拟**（`/#/ashare-paper`），复用官方登录、JWT、角色和语言系统。页面提供盘中报价、时间与新鲜度、虚拟资金/持仓、模拟买卖、撤单、委托/成交记录、当日规则审核、关注列表，以及飞书配置引导。HTTP 接口只处理鉴权、校验和持久化，独立 worker 采集行情并撮合。
 
 ## 部署到现有 Fork
@@ -35,7 +37,7 @@ python -m app.ashare.managed_worker --cycles 0
 ```bash
 python scripts/frontend/prepare_ashare_frontend.py ../work/quantdinger-frontend --build
 cd ../work/quantdinger-frontend
-VITE_DEV_PROXY_TARGET=http://127.0.0.1:5017 pnpm preview --host 127.0.0.1 --port 5177
+VITE_DEV_PROXY_TARGET=http://127.0.0.1:5017 pnpm dev --host 127.0.0.1 --port 5177
 ```
 
 需要 Node 与 pnpm（采用官方前端要求及锁文件）。Windows 使用 PowerShell 的 `$env:变量名` 设置环境变量。上述 localhost 命令用于开发/验收；长期部署沿用官方反向代理和生产 WSGI 启动方式，并由 systemd 或容器分别管理 API 和 worker，配置失败重启。不要把开发服务器直接公开到互联网。

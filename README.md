@@ -1,5 +1,7 @@
 > The official UI now includes an **A-share paper** menu: [web run guide](docs/downstream/WEB_WORKSPACE.md) · [web acceptance](docs/downstream/WEB_ACCEPTANCE.md). Quotes, virtual cash/positions, manual paper orders and Feishu setup are integrated. Real brokerage and Agent mutations remain disabled. The upstream overview below is retained; its live features are unavailable here.
 
+> Sustained operation: [deployment and backups](docs/downstream/DEPLOYMENT.md) · [operations](docs/downstream/OPERATIONS.md) · [multi-session validation](docs/downstream/MULTIDAY_VALIDATION.md) · [acceptance and remaining work](docs/downstream/LONGRUN_ACCEPTANCE.md).
+
 <div align="center">
   <a href="https://github.com/OpenByteInc/QuantDinger">
     <picture>

@@ -1,0 +1,16 @@
+**
+!backend_api_python/
+!backend_api_python/**
+!deploy/
+!deploy/ashare/
+!deploy/ashare/*.py
+!deploy/ashare/requirements-runtime.txt
+**/.env*
+**/__pycache__/
+**/*.pyc
+backend_api_python/tests/
+backend_api_python/logs/
+backend_api_python/reports/
+backend_api_python/data/
+backend_api_python/.test_deps/
+backend_api_python/.pytest_cache/

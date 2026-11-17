@@ -29,7 +29,7 @@ def endpoint(write=False):
             if not dsn:
                 return jsonify(code=0, msg="paper_database_not_configured", data=None), 503
             try:
-                with closing(psycopg2.connect(dsn, connect_timeout=5)) as connection:
+                with closing(psycopg2.connect(dsn, connect_timeout=5, options="-c statement_timeout=10000 -c lock_timeout=3000")) as connection:
                     store = WebStore(connection, "user_" + str(g.user_id))
                     result = function(store, *args, **kwargs)
                     return jsonify(code=1, msg="success", data=serialize(result))
@@ -67,6 +67,21 @@ def body(allowed):
 @endpoint()
 def state(store):
     return store.state()
+
+
+@blueprint.get("/daily-reports")
+@endpoint()
+def daily_reports(store):
+    from app.ashare.operations import list_daily_reports
+    if set(request.args) - {"limit"}:
+        raise ValueError("unexpected_fields")
+    try:
+        limit = int(request.args.get("limit", "30"))
+    except ValueError:
+        raise ValueError("invalid_report_limit") from None
+    if not 1 <= limit <= 90:
+        raise ValueError("invalid_report_limit")
+    return list_daily_reports(store.connection, store.tenant_id, store.account_id, limit=limit)
 
 
 @blueprint.post("/initialize")
@@ -124,11 +139,11 @@ def review(store):
 def order(store):
     data = body({"client_order_id", "symbol", "side", "quantity", "limit_price"})
     now = datetime.now(timezone.utc)
+    # Exact retries remain valid after their rows leave the bounded UI history.
+    previous = store.broker.find_order(data["client_order_id"])
+    if previous:
+        return store.broker.place_order(**data, submitted_at=previous["submitted_at"], trading_day=previous["trading_day"])
     snapshot = store.state()
-    # Exact retries retain the original timestamp and remain valid after the quote expires.
-    for previous in snapshot["orders"]:
-        if previous["client_order_id"] == data["client_order_id"]:
-            return store.broker.place_order(**data, submitted_at=previous["submitted_at"], trading_day=previous["trading_day"])
     if data["symbol"] not in snapshot["settings"]["symbols"]:
         raise ValueError("symbol_not_configured")
     if snapshot["worker"].get("stale", True):

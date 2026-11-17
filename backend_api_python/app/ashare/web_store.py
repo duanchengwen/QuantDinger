@@ -39,7 +39,7 @@ class WebStore:
         if type(interval_seconds) is not int or not 2 <= interval_seconds <= 3600:
             raise ValueError("invalid_interval")
         settings = {"symbols": symbols, "interval_seconds": interval_seconds}
-        snapshot = self.broker.snapshot()
+        snapshot = self.broker.snapshot(history_limit=200)
         active = {row["symbol"] for row in snapshot["positions"]}
         active.update(row["symbol"] for row in snapshot["orders"] if row["status"] in ("open", "partial"))
         if active - set(symbols):
@@ -49,7 +49,7 @@ class WebStore:
         return settings
 
     def review(self, rule):
-        self.broker.snapshot()
+        self.broker.snapshot(history_limit=200)
         with self.connection, self.connection.cursor() as cursor:
             cursor.execute("UPDATE qd_ashare_web SET rules=rules || %s::jsonb,updated_at=now() WHERE tenant_id=%s AND account_id=%s", (json.dumps({rule["symbol"]: rule}, default=str), *self.key))
             cursor.execute("INSERT INTO qd_ashare_audit(tenant_id,account_id,event,details) VALUES (%s,%s,'daily_rules_reviewed',%s::jsonb)", (*self.key, json.dumps(rule, default=str)))
@@ -81,7 +81,7 @@ class WebStore:
             raise ValueError("invalid_notification_configuration")
         if webhook_url and not re.fullmatch(r"https://open\.feishu\.cn/open-apis/bot/v2/hook/[A-Za-z0-9-]{1,160}", webhook_url):
             raise ValueError("invalid_webhook_configuration")
-        self.broker.snapshot()
+        self.broker.snapshot(history_limit=200)
         encrypted = self._cipher().encrypt(json.dumps({"webhook_url": webhook_url, "signing_secret": signing_secret}).encode()).decode() if webhook_url else None
         with self.connection, self.connection.cursor() as cursor:
             cursor.execute("UPDATE qd_ashare_web SET notifications_encrypted=%s WHERE tenant_id=%s AND account_id=%s", (encrypted, *self.key))
@@ -99,7 +99,7 @@ class WebStore:
     def state(self):
         row = self._row()
         try:
-            result = self.broker.snapshot()
+            result = self.broker.snapshot(history_limit=200)
         except ValueError:
             result = {"account": None, "orders": [], "positions": [], "fills": [], "audit": []}
         result.update({key: row[key] for key in ("settings", "rules", "quotes", "worker")})

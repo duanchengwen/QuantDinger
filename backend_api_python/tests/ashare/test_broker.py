@@ -206,3 +206,48 @@ def test_quote_status_contradiction_or_subcent_price_rejected(broker, change):
     with pytest.raises(ValueError):
         broker.on_quote(data, rules(), instant(second=1))
     assert broker.snapshot()["fills"] == []
+
+
+def test_bounded_history_retains_open_orders_total_fees_and_idempotency(broker):
+    first = place(broker, key='old-filled')
+    match(broker)
+    pending = place(broker, key='old-open')
+    for index in range(4):
+        cancelled = place(broker, key=f'cancelled-{index}')
+        broker.cancel(cancelled['id'])
+    full = broker.snapshot()
+    bounded = broker.snapshot(history_limit=2)
+    assert len(bounded['orders']) == 3
+    assert pending['id'] in {row['id'] for row in bounded['orders']}
+    assert first['id'] not in {row['id'] for row in bounded['orders']}
+    assert bounded['account'] == full['account']
+    assert bounded['positions'] == full['positions']
+    assert bounded['history']['truncated'] == {'orders': True, 'fills': False, 'audit': True}
+    assert len(bounded['audit']) == 2
+    assert broker.find_order('old-filled')['id'] == first['id']
+    assert place(broker, key='old-filled')['id'] == first['id']
+    assert broker.find_order('unknown') is None
+    other = PaperBroker(broker.connection, broker.tenant_id + '-other', 'paper')
+    assert other.find_order('old-filled') is None
+
+
+@pytest.mark.parametrize('at', [
+    datetime(2026, 10, 1, 2, 0, tzinfo=timezone.utc),
+    datetime(2026, 11, 21, 2, 0, tzinfo=timezone.utc),
+    datetime(2027, 1, 4, 2, 0, tzinfo=timezone.utc),
+])
+def test_direct_broker_cannot_bypass_calendar_with_manually_reviewed_rules(broker, at):
+    sample = quote()
+    sample.update(exchange_time=at.isoformat(), received_at=at.isoformat())
+    daily = rules()
+    daily['trading_day'] = at.date().isoformat()
+    with pytest.raises(ValueError, match='verified continuous'):
+        broker.on_quote(sample, daily, at)
+    assert broker.snapshot()['fills'] == []
+
+
+def test_quote_from_before_close_cannot_match_after_continuous_session(broker):
+    sample = quote()
+    sample.update(exchange_time='2026-11-17T06:56:59+00:00', received_at='2026-11-17T06:57:01+00:00')
+    with pytest.raises(ValueError, match='verified continuous'):
+        broker.on_quote(sample, rules(), datetime(2026, 11, 17, 6, 57, 1, tzinfo=timezone.utc))

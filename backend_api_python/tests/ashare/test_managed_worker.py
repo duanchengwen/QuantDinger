@@ -35,7 +35,7 @@ def account(tmp_path):
     with connection, connection.cursor() as cursor:
         cursor.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
         cursor.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
-        for name in ("20261117_ashare_paper.sql", "20261117_ashare_web.sql"):
+        for name in ("20261117_ashare_paper.sql", "20261117_ashare_web.sql", "20261117_ashare_operations.sql"):
             cursor.execute((Path(__file__).parents[2] / "migrations" / name).read_text())
     store = WebStore(connection, "managed_" + uuid.uuid4().hex)
     store.initialize("10000")
@@ -191,7 +191,7 @@ def test_loop_recovers_database_connection_then_completes_bounded_cycle(account,
         attempts.append(1)
         if len(attempts) == 1:
             raise psycopg2.OperationalError("hidden credential text")
-        return psycopg2.connect(os.environ["TEST_ASHARE_DATABASE_URL"], options="-c search_path=" + schema, **kwargs)
+        return psycopg2.connect(os.environ["TEST_ASHARE_DATABASE_URL"], options="-c search_path=" + schema + " " + kwargs.pop("options", ""), **kwargs)
     assert run_forever("not-a-real-dsn", path, cycles=1, connect=reconnect, stop_event=wait) == 0
     assert len(attempts) == 2
     assert wait.waits == [1]

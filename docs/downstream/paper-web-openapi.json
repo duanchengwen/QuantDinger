@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "A-share human paper API",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "description": "Human JWT only; tenant derives from verified user. Real brokerage and Agent writes remain disabled."
   },
   "servers": [
@@ -392,6 +392,40 @@
             }
           }
         }
+      }
+    },
+    "/daily-reports": {
+      "get": {
+        "summary": "Read immutable daily paper ledger reports for the authenticated account",
+        "responses": {
+          "200": {
+            "description": "Human envelope code=1; data is an array of trading_day, generated_at and report. Missing equity is null, never an invented valuation."
+          },
+          "400": {
+            "description": "Rejected request"
+          },
+          "401": {
+            "description": "Invalid human session"
+          },
+          "403": {
+            "description": "Viewer write denied"
+          },
+          "503": {
+            "description": "Paper database unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 90,
+              "default": 30
+            }
+          }
+        ]
       }
     }
   }

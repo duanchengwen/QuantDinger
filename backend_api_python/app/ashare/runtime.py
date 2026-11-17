@@ -137,7 +137,7 @@ def process_quotes(broker, config: dict, quotes: list[dict], now: datetime) -> d
         except (ValueError, RuntimeError) as exc:
             result["rejections"].append({"symbol": symbol, "reason": str(exc)[:250]})
     result["state"] = "degraded" if result["rejections"] else "healthy"
-    result["account"] = broker.snapshot()
+    result["account"] = broker.snapshot(history_limit=200)
     return result
 
 

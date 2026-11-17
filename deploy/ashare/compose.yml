@@ -1,0 +1,118 @@
+# Isolated paper workspace: no trading-worker, evaluator, scheduler or AI queue.
+x-log: &log
+  driver: json-file
+  options: {max-size: "10m", max-file: "3"}
+x-env: &env
+  DATABASE_URL: postgresql://paper:${POSTGRES_PASSWORD:?Run paper_stack.py init}@db:5432/paper
+  ASHARE_DATABASE_URL: postgresql://paper:${POSTGRES_PASSWORD:?Run paper_stack.py init}@db:5432/paper
+  SECRET_KEY: ${SECRET_KEY:?Stable secret required}
+  CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?Stable encryption key required}
+  ADMIN_USER: ${ADMIN_USER:?Admin username required}
+  ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Admin password required}
+  ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+  SKIP_STARTUP_HOOKS: "1"
+  QD_PROCESS_ROLE: api
+  SINGLE_USER_MODE: "false"
+  PYTHON_API_HOST: 0.0.0.0
+  PYTHON_API_PORT: "5000"
+  GUNICORN_WORKERS: "1"
+  GUNICORN_THREADS: "4"
+  GUNICORN_MAX_REQUESTS: "800"
+  CACHE_ENABLED: "false"
+  ENABLE_CACHE: "false"
+  ENABLE_PORTFOLIO_MONITOR: "false"
+  ENABLE_GRID_FILL_POLLER: "false"
+  POSITION_SYNC_ENABLED: "false"
+  LIVE_TRADING_ENABLED: "false"
+  AGENT_LIVE_TRADING_ENABLED: "false"
+  AI_AUTO_PROMOTION_ENABLED: "false"
+  ASHARE_MIN_FREE_DISK_BYTES: ${ASHARE_MIN_FREE_DISK_BYTES:-104857600}
+  DB_POOL_MIN: "1"
+  DB_POOL_MAX: "12"
+  LOG_DIR: /app/logs
+  SMTP_HOST: ${SMTP_HOST:-}
+  SMTP_PORT: ${SMTP_PORT:-587}
+  SMTP_USER: ${SMTP_USER:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  SMTP_FROM: ${SMTP_FROM:-}
+  SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
+  SMTP_USE_SSL: ${SMTP_USE_SSL:-false}
+x-app: &app
+  image: ${ASHARE_APP_IMAGE:-quantdinger-ashare:local}
+  build:
+    context: ../..
+    dockerfile: deploy/ashare/Dockerfile
+  environment: *env
+  init: true
+  logging: *log
+  security_opt: [no-new-privileges:true]
+  cap_drop: [ALL]
+  volumes: [evidence:/app/data, logs:/app/logs]
+  tmpfs: [/tmp]
+  stop_grace_period: 45s
+services:
+  db:
+    image: ${ASHARE_POSTGRES_IMAGE:-postgres:18@sha256:2ea8630df176ad090ec92136dee850397c5af8781e4bcf2e4162593691c61bbc}
+    environment:
+      POSTGRES_USER: paper
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run paper_stack.py init}
+      POSTGRES_DB: paper
+    volumes: [postgres:/var/lib/postgresql]
+    restart: unless-stopped
+    logging: *log
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U paper -d paper"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    stop_grace_period: 60s
+  migration:
+    <<: *app
+    restart: "no"
+    command: [python, /opt/paper/bootstrap.py]
+    depends_on:
+      db: {condition: service_healthy}
+  api:
+    <<: *app
+    restart: unless-stopped
+    command: [gunicorn, -c, gunicorn_config.py, "run:app"]
+    depends_on:
+      migration: {condition: service_completed_successfully}
+    healthcheck:
+      test: [CMD, python, /opt/paper/runtime_check.py, api]
+      interval: 20s
+      timeout: 12s
+      retries: 3
+      start_period: 90s
+  worker:
+    <<: *app
+    restart: unless-stopped
+    command: [python, -m, app.ashare.managed_worker, --cycles, "0", --evidence-dir, /app/data/evidence]
+    depends_on:
+      migration: {condition: service_completed_successfully}
+    healthcheck:
+      test: [CMD, python, -m, app.ashare.healthcheck, --max-age-seconds, "120"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 60s
+  web:
+    image: ${ASHARE_NGINX_IMAGE:-nginx:1.30.6-alpine3.24-slim}
+    ports: ["127.0.0.1:${ASHARE_HTTP_PORT:-8077}:8080"]
+    volumes:
+      - ${ASHARE_FRONTEND_DIST:?Prepared official frontend dist required}:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    restart: unless-stopped
+    logging: *log
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      api: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:8080/healthz"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+volumes:
+  postgres:
+  evidence:
+  logs:

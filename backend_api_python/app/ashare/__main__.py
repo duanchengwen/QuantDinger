@@ -54,7 +54,8 @@ def main(argv=None):
     with closing(psycopg2.connect(dsn, connect_timeout=10)) as connection:
         if args.command == "migrate":
             migration_root = Path(__file__).resolve().parents[2] / "migrations"
-            names = ["20261117_ashare_paper.sql", "20261117_ashare_web.sql"]
+            from app.ashare.schema import MIGRATIONS
+            names = list(MIGRATIONS)
             with connection, connection.cursor() as cursor:
                 for name in names:
                     cursor.execute((migration_root / name).read_text(encoding="utf-8"))
@@ -73,6 +74,9 @@ def main(argv=None):
             if args.symbol not in config["symbols"]:
                 raise ValueError("Symbol not in configured universe")
             now = utc_now()
+            from app.ashare.calendar_rules import market_session
+            if not market_session(now)["can_match"]:
+                raise ValueError("outside reviewed continuous trading session")
             rules = reviewed_rules(config, args.symbol, now)
             if not Decimal(rules["limit_down"]) <= args.limit <= Decimal(rules["limit_up"]):
                 raise ValueError("Order price outside reviewed daily band")

@@ -1,5 +1,7 @@
 > 本 Fork 已接入官方页面的 **A 股模拟** 菜单：[页面运行说明](docs/downstream/WEB_WORKSPACE_CN.md) · [页面验收报告](docs/downstream/WEB_ACCEPTANCE_CN.md)。支持行情、虚拟资金/持仓、模拟买卖和飞书配置引导。本分支禁止真实下单和 Agent 写操作；以下保留官方产品介绍，其中实盘功能在本分支不可用。
 
+> 长期运行：[部署与备份](docs/downstream/DEPLOYMENT_CN.md) · [运行监控](docs/downstream/OPERATIONS_CN.md) · [跨交易日验证](docs/downstream/MULTIDAY_VALIDATION_CN.md) · [本轮验收与待办](docs/downstream/LONGRUN_ACCEPTANCE_CN.md)。
+
 <div align="center">
   <a href="https://github.com/OpenByteInc/QuantDinger">
     <picture>

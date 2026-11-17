@@ -123,3 +123,36 @@ def test_future_or_failed_worker_blocks_new_orders(client):
         assert call(client,"/orders",order).json["msg"] == "paper_worker_stale"
         store.observe([],{"state":"failed","observed_at":datetime.now(timezone.utc).isoformat()})
         assert call(client,"/orders",order).json["msg"] == "paper_worker_not_healthy"
+
+
+def test_daily_reports_are_read_only_bounded_and_tenant_scoped(client):
+    call(client, '/initialize', {'initial_cash': '10000'})
+    with psycopg2.connect(os.environ['TEST_ASHARE_DATABASE_URL']) as conn, conn.cursor() as cur:
+        cur.execute((Path(__file__).parents[2] / 'migrations/20261117_ashare_operations.sql').read_text())
+        cur.execute("INSERT INTO qd_ashare_daily_reports(tenant_id,account_id,trading_day,generated_at,report) VALUES(%s,'paper','2026-11-16',now(),%s::jsonb)",
+                    ('user_' + str(client.test_user), '{"cash_end":"10000.00","equity_end":null,"reconciliation":{"ok":true}}'))
+    result = call(client, '/daily-reports', method='GET')
+    assert result.status_code == 200 and len(result.json['data']) == 1
+    assert result.json['data'][0]['report']['equity_end'] is None
+    assert call(client, '/daily-reports', method='GET', token='viewer').status_code == 200
+    assert call(client, '/daily-reports', method='GET', token='other').json['data'] == []
+    for query in ['limit=0', 'limit=91', 'limit=bad', 'tenant_id=user_1']:
+        assert call(client, '/daily-reports?' + query, method='GET').status_code == 400
+    assert client.get('/api/ashare-paper/daily-reports').status_code == 401
+
+
+def test_account_lock_timeout_returns_service_error_then_recovers(client, monkeypatch):
+    call(client, '/initialize', {'initial_cash': '10000'})
+    connect = psycopg2.connect
+    def bounded_connect(dsn, **kwargs):
+        assert 'lock_timeout=3000' in kwargs['options']
+        return connect(dsn, connect_timeout=5, options='-c statement_timeout=1000 -c lock_timeout=30')
+    with closing(connect(os.environ['TEST_ASHARE_DATABASE_URL'])) as blocker:
+        with blocker.cursor() as cur:
+            cur.execute('SELECT * FROM qd_ashare_accounts WHERE tenant_id=%s FOR UPDATE', ('user_' + str(client.test_user),))
+        monkeypatch.setattr(psycopg2, 'connect', bounded_connect)
+        response = call(client, '/state', method='GET')
+        assert response.status_code == 503 and response.json['msg'] == 'paper_database_unavailable'
+        blocker.rollback()
+        response = call(client, '/state', method='GET')
+        assert response.status_code == 200 and response.json['data']['account']['cash'] == '10000.00'

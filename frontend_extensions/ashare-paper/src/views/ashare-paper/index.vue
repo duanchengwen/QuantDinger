@@ -60,7 +60,8 @@
     </div>
 
     <a-card class="paper-section">
-      <a-tabs default-active-key="orders">
+      <p v-if="historyTruncated" class="paper-muted">{{ t('historyBounded') }}</p>
+      <a-tabs v-model="activeTab" @change="onTabChange">
         <a-tab-pane key="orders" :tab="t('orders')">
           <a-table
             :columns="orderColumns"
@@ -71,6 +72,23 @@
             :scroll="{ x: 750 }">
             <template slot="side" slot-scope="value">{{ t(value) }}</template><template slot="status" slot-scope="value">{{ t('state.' + value) }}</template>
             <template slot="cancel" slot-scope="value, row"><a-button v-if="['open', 'partial'].includes(row.status)" size="small" :disabled="readOnly || busy" @click="cancelOrder(row.id)">{{ t('cancel') }}</a-button></template>
+          </a-table>
+        </a-tab-pane>
+        <a-tab-pane key="reports" :tab="t('reports')">
+          <p class="paper-muted">{{ t('reportHelp') }}</p>
+          <a-alert v-if="reportsError" type="error" :message="reportsError" class="paper-alert" />
+          <a-button :loading="reportsLoading" @click="loadReports">{{ t('refreshReports') }}</a-button>
+          <a-table
+            :columns="reportColumns"
+            :data-source="reportRows"
+            row-key="trading_day"
+            size="small"
+            :pagination="{ pageSize: 8 }"
+            :scroll="{ x: 800 }">
+            <template slot="money" slot-scope="value">{{ value == null ? '—' : money(value) }}</template>
+            <template slot="reconciliation" slot-scope="value"><a-tag :color="value === true ? 'green' : 'red'">{{ value === true ? t('reconciled') : t('reconciliationFailed') }}</a-tag></template>
+            <template slot="time" slot-scope="value">{{ formatTime(value) }}</template>
+            <template slot="emptyText">{{ t('noReports') }}</template>
           </a-table>
         </a-tab-pane>
         <a-tab-pane key="fills" :tab="t('fills')">
@@ -137,7 +155,11 @@ orderId: '',
       reviewVisible: false,
 reviewChecked: false,
 review: { symbol: '', trading_day: '', evidence: '', limit_down: null, limit_up: null },
-      bot: { webhook_url: '', signing_secret: '' }
+      bot: { webhook_url: '', signing_secret: '' },
+      activeTab: 'orders',
+reports: [],
+reportsLoading: false,
+reportsError: ''
 }
   },
   computed: {
@@ -152,6 +174,21 @@ review: { symbol: '', trading_day: '', evidence: '', limit_down: null, limit_up:
     quoteColumns () { return [{ title: this.t('symbol'), dataIndex: 'symbol', scopedSlots: { customRender: 'symbol' } }, { title: this.t('last'), dataIndex: 'last' }, { title: this.t('bid'), key: 'bid', scopedSlots: { customRender: 'depthBid' } }, { title: this.t('ask'), key: 'ask', scopedSlots: { customRender: 'depthAsk' } }, { title: this.t('time'), key: 'time', scopedSlots: { customRender: 'time' } }, { title: this.t('status'), key: 'quality', scopedSlots: { customRender: 'quality' } }, { title: this.t('rules'), key: 'rules', scopedSlots: { customRender: 'rules' } }] },
     positionColumns () { return this.columns(['symbol', 'quantity', 'acquired_day']) },
     orderColumns () { return [...this.columns(['id', 'symbol', 'side', 'quantity', 'filled', 'limit_price', 'status']), { title: this.t('action'), key: 'cancel', scopedSlots: { customRender: 'cancel' } }] },
+    historyTruncated () { return Object.values((this.state.history || {}).truncated || {}).some(Boolean) },
+    reportRows () { return this.reports.map(item => ({ ...item.report, trading_day: item.trading_day, generated_at: item.generated_at, reconciliation_ok: item.report.reconciliation && item.report.reconciliation.ok, observation: item.report.observation_summary && item.report.observation_summary.poll_count != null ? `${item.report.observation_summary.wall_clock_polls} / ${item.report.observation_summary.controlled_time_polls}` : '—' })) },
+    reportColumns () {
+ return [
+      { title: this.t('reportDay'), dataIndex: 'trading_day' },
+      { title: this.t('reportCash'), dataIndex: 'cash_end', scopedSlots: { customRender: 'money' } },
+      { title: this.t('reportBuys'), dataIndex: 'buy_notional', scopedSlots: { customRender: 'money' } },
+      { title: this.t('reportSells'), dataIndex: 'sell_notional', scopedSlots: { customRender: 'money' } },
+      { title: this.t('fees'), dataIndex: 'fees', scopedSlots: { customRender: 'money' } },
+      { title: this.t('reportFills'), dataIndex: 'day_fill_count' },
+      { title: this.t('reconciliation'), dataIndex: 'reconciliation_ok', scopedSlots: { customRender: 'reconciliation' } },
+      { title: this.t('reportObservation'), dataIndex: 'observation' },
+      { title: this.t('reportGenerated'), dataIndex: 'generated_at', scopedSlots: { customRender: 'time' } }
+    ]
+},
     fillColumns () { return this.columns(['order_id', 'symbol', 'side', 'quantity', 'price', 'fee', 'exchange_time']) }
   },
   mounted () { this.clock = setInterval(() => { this.now = Date.now() }, 1000); this.poll() },
@@ -166,6 +203,8 @@ review: { symbol: '', trading_day: '', evidence: '', limit_down: null, limit_up:
     quoteFresh (quote) { return quoteIsFresh(quote, this.now) },
     today () { return shanghaiDate(this.now) },
     ruleReady (symbol) { return ruleIsReady((this.state.rules || {})[symbol], this.now) },
+    onTabChange (key) { if (key === 'reports') this.loadReports() },
+    async loadReports () { if (this.reportsLoading || this.stopped) return; this.reportsLoading = true; try { const result = await paperRequest('/daily-reports?limit=30'); if (!this.stopped) { this.reports = result; this.reportsError = '' } } catch (err) { this.reportsError = this.errorMessage(err) } finally { this.reportsLoading = false } },
     async refresh () { if (this.loading || this.stopped) return; this.loading = true; try { const data = await paperRequest(); if (this.stopped) return; this.now = Date.now(); this.state = { ...emptyState(), ...data }; this.error = ''; this.updatedAt = new Date().toISOString(); if (!this.settingsLoaded) { this.settingsSymbols = this.symbols.join(','); this.settingsInterval = this.state.settings.interval_seconds || 5; this.order.symbol = this.symbols[0]; this.settingsLoaded = true } } catch (err) { this.error = this.errorMessage(err) } finally { this.loading = false } },
     async poll () { if (this.stopped) return; if (!document.hidden) await this.refresh(); if (!this.stopped) this.timer = setTimeout(() => this.poll(), 3000) },
     async mutate (path, method, data, message) { if (this.busy) return; this.busy = true; try { const result = await paperRequest(path, method, data); if (message) this.$message.success(message); await this.refresh(); return result } catch (err) { this.error = this.errorMessage(err); throw err } finally { this.busy = false } },

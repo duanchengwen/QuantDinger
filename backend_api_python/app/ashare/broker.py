@@ -159,9 +159,12 @@ class PaperBroker:
 
     def on_quote(self, quote: dict, rules: dict, now: datetime):
         from app.ashare.market import validate_quote
+        from app.ashare.calendar_rules import market_session
         now = aware(now)
         validate_quote(quote, now=now, max_age_seconds=15)
         timestamp = aware(quote["exchange_time"])
+        if not market_session(now)["can_match"] or not market_session(timestamp)["can_match"]:
+            raise ValueError("outside verified continuous trading session")
         local = timestamp.astimezone(SHANGHAI)
         day = local.date()
         if not supported(quote["symbol"]) or not quote.get("quote_id") or not quote.get("evidence_sha256"):
@@ -264,17 +267,48 @@ class PaperBroker:
         self._audit(cursor, "paper_fill", fill)
         return fill
 
-    def snapshot(self):
+    def find_order(self, client_order_id):
+        """Look up an idempotency key without relying on a bounded UI history."""
+        with self.connection, self._cursor() as cursor:
+            cursor.execute("SELECT * FROM qd_ashare_orders WHERE tenant_id=%s AND account_id=%s AND client_order_id=%s",
+                           (*self.key, client_order_id))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def snapshot(self, history_limit=None, *, include_audit=True):
+        """Return active state and optional bounded history; never trim open orders."""
+        if history_limit is not None and (type(history_limit) is not int or not 1 <= history_limit <= 1000):
+            raise ValueError("invalid history limit")
         with self.connection, self._cursor() as cursor:
             account = dict(self._account(cursor))
             account["available_cash"] = account["cash"] - account["reserved_cash"]
             account["currency"] = "CNY"
             result = {"account": account}
+            truncated = {}
             for key, table in (("orders", "qd_ashare_orders"), ("fills", "qd_ashare_fills"), ("audit", "qd_ashare_audit")):
-                cursor.execute(f"SELECT * FROM {table} WHERE tenant_id=%s AND account_id=%s ORDER BY id", self.key)
-                result[key] = [dict(row) for row in cursor.fetchall()]
+                if key == "audit" and not include_audit:
+                    result[key] = []
+                    continue
+                if history_limit is None:
+                    cursor.execute(f"SELECT * FROM {table} WHERE tenant_id=%s AND account_id=%s ORDER BY id", self.key)
+                    result[key] = [dict(row) for row in cursor.fetchall()]
+                    continue
+                closed = " AND status NOT IN ('open','partial')" if key == "orders" else ""
+                cursor.execute(f"SELECT * FROM {table} WHERE tenant_id=%s AND account_id=%s{closed} ORDER BY id DESC LIMIT %s",
+                               (*self.key, history_limit + 1))
+                rows = [dict(row) for row in cursor.fetchall()]
+                truncated[key] = len(rows) > history_limit
+                rows = rows[:history_limit]
+                if key == "orders":
+                    cursor.execute("SELECT * FROM qd_ashare_orders WHERE tenant_id=%s AND account_id=%s AND status IN ('open','partial')", self.key)
+                    rows.extend(dict(row) for row in cursor.fetchall())
+                result[key] = sorted(rows, key=lambda row: row["id"])
+            if history_limit is not None:
+                result["history"] = {"limit": history_limit, "truncated": truncated}
+            cursor.execute("SELECT COALESCE(SUM(commission),0) AS commission, COALESCE(SUM(transfer_fee),0) AS transfer_fee, COALESCE(SUM(sell_tax),0) AS sell_tax FROM qd_ashare_orders WHERE tenant_id=%s AND account_id=%s", self.key)
+            fees = cursor.fetchone()
             for field in ("commission", "transfer_fee", "sell_tax"):
-                account["total_" + field] = sum((order[field] for order in result["orders"]), Decimal("0"))
+                account["total_" + field] = fees[field]
             account["total_fees"] = account["total_commission"] + account["total_transfer_fee"] + account["total_sell_tax"]
             cursor.execute("SELECT symbol,acquired_day,SUM(quantity) AS quantity FROM qd_ashare_lots WHERE tenant_id=%s AND account_id=%s AND quantity>0 GROUP BY symbol,acquired_day ORDER BY symbol,acquired_day", self.key)
             result["positions"] = [dict(row) for row in cursor.fetchall()]

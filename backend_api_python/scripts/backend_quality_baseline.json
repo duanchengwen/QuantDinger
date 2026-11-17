@@ -4,11 +4,11 @@
     "app/services/pending_order_worker.py": 3069,
     "app/services/fast_analysis.py": 1848,
     "app/routes/strategy.py": 1247,
-    "app/routes/quick_trade.py": 2027
+    "app/routes/quick_trade.py": 2038
   },
   "max_function_lines": {
     "app/services/trading_executor.py::_run_strategy_loop": 1176,
-    "app/services/pending_order_worker.py::_execute_live_order": 810,
+    "app/services/pending_order_worker.py::_execute_live_order": 812,
     "app/services/fast_analysis.py::analyze": 585,
     "app/routes/strategy.py::ai_generate_strategy": 307,
     "app/routes/indicator.py::ai_generate": 499
@@ -16,5 +16,9 @@
   "banned_exchange_patterns": [
     "k[u]coin",
     "d[e]epcoin"
-  ]
+  ],
+  "downstream_accepted_guards": {
+    "commit": "cd0bab139bebc22992b58c7b34e197348ba02078",
+    "reason": "Only the existing paper-only HTTP rejection (+11 file lines) and queued live-order fail/return (+2 function lines) are accepted; all other upstream growth thresholds and banned patterns remain unchanged."
+  }
 }
