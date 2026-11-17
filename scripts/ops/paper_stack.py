@@ -22,7 +22,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 COMPOSE = ROOT / 'deploy/ashare/compose.yml'
-ALLOWED_BACKUP_FILES = {'database.dump', 'evidence.tar.gz', 'config.env', 'ledger.json'}
+LEGACY_BACKUP_FILES = {'database.dump', 'evidence.tar.gz', 'config.env', 'ledger.json'}
+ALLOWED_BACKUP_FILES = LEGACY_BACKUP_FILES | {'settings.tar.gz'}
 
 
 def run(args, **kwargs):
@@ -136,6 +137,7 @@ def backup(state, destination):
             run(compose(state, 'stop', *paused))
         pipe_to_file(compose(state, 'exec', '-T', 'db', 'pg_dump', '-U', 'paper', '-d', 'paper', '-Fc', '--no-owner', '--no-acl'), destination / 'database.dump')
         pipe_to_file(compose(state, 'run', '--rm', '--no-deps', '-T', '--entrypoint', 'tar', 'api', '-C', '/app/data', '-czf', '-', '.'), destination / 'evidence.tar.gz')
+        pipe_to_file(compose(state, 'run', '--rm', '--no-deps', '-T', '--entrypoint', 'tar', 'api', '-C', '/app/settings', '-czf', '-', '.'), destination / 'settings.tar.gz')
         shutil.copyfile(state / 'config.env', destination / 'config.env')
         os.chmod(destination / 'config.env', 0o600)
         summary = fingerprint(compose(state, 'exec', '-T', 'db', 'psql', '-U', 'paper', '-d', 'paper'))
@@ -175,16 +177,19 @@ def stop_on_signal(signum, _frame):
 
 def verify_backup(source):
     manifest = json.loads((source / 'manifest.json').read_text())
-    if set(manifest['files']) != ALLOWED_BACKUP_FILES:
+    if set(manifest['files']) not in (ALLOWED_BACKUP_FILES, LEGACY_BACKUP_FILES):
         raise ValueError('Unexpected backup manifest contents')
     for name, digest in manifest['files'].items():
         path = source / name
         if path.is_symlink() or sha256(path) != digest:
             raise ValueError('Backup checksum verification failed: ' + name)
-    with tarfile.open(source / 'evidence.tar.gz', 'r:gz') as archive:
-        for member in archive:
-            if member.name.startswith('/') or '..' in Path(member.name).parts or not (member.isfile() or member.isdir()):
-                raise ValueError('Unsafe evidence archive member')
+    for name in ('evidence.tar.gz', 'settings.tar.gz'):
+        if name not in manifest['files']:
+            continue
+        with tarfile.open(source / name, 'r:gz') as archive:
+            for member in archive:
+                if member.name.startswith('/') or '..' in Path(member.name).parts or not (member.isfile() or member.isdir()):
+                    raise ValueError('Unsafe evidence/settings archive member')
     return manifest
 
 
@@ -219,7 +224,7 @@ def restore_check(source, image):
 
 
 def restore(state, source, args):
-    verify_backup(source)
+    manifest = verify_backup(source)
     if state.exists():
         raise ValueError('Restore requires a NEW state directory; existing deployments are never overwritten')
     ensure_new_project(args.project)
@@ -241,6 +246,9 @@ def restore(state, source, args):
             run(compose(state, 'exec', '-T', 'db', 'pg_restore', '-U', 'paper', '-d', 'paper', '--no-owner', '--no-acl', '--exit-on-error'), stdin=stream)
         with (source / 'evidence.tar.gz').open('rb') as stream:
             run(compose(state, 'run', '--rm', '--no-deps', '-T', '--entrypoint', 'tar', 'api', '-C', '/app/data', '-xzf', '-', '--no-same-owner'), stdin=stream)
+        if 'settings.tar.gz' in manifest['files']:
+            with (source / 'settings.tar.gz').open('rb') as stream:
+                run(compose(state, 'run', '--rm', '--no-deps', '-T', '--entrypoint', 'tar', 'api', '-C', '/app/settings', '-xzf', '-', '--no-same-owner'), stdin=stream)
         actual = fingerprint(compose(state, 'exec', '-T', 'db', 'psql', '-U', 'paper', '-d', 'paper'))
         if actual != json.loads((source / 'ledger.json').read_text()):
             raise RuntimeError('Restore verification failed; services remain stopped')

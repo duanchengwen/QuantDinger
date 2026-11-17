@@ -17,7 +17,8 @@ def client(monkeypatch):
     monkeypatch.setenv("ASHARE_DATABASE_URL", dsn)
     monkeypatch.setenv("SECRET_KEY", "test-encryption-secret-longer-than-thirty-two")
     with psycopg2.connect(dsn) as conn, conn.cursor() as cur:
-        for name in ("20261117_ashare_paper.sql", "20261117_ashare_web.sql"):
+        from app.ashare.schema import MIGRATIONS
+        for name in MIGRATIONS:
             cur.execute((Path(__file__).parents[2] / "migrations" / name).read_text())
     user = int(uuid.uuid4().hex[:8], 16)
     def verify(token):
@@ -49,6 +50,13 @@ def test_settings_validation(client):
     call(client, "/initialize", {"initial_cash": "10000"})
     assert call(client, "/settings", {"symbols":["sh.688001"],"interval_seconds":5}, method="PUT").status_code == 400
     assert call(client, "/settings", {"symbols":["sz.000001"],"interval_seconds":5}, method="PUT").status_code == 200
+
+@pytest.mark.parametrize("path", ["/daily-reports?limit=5", "/universe?trading_day=2026-11-16", "/rules/suggestions?"])
+def test_official_frontend_get_cache_parameter(client, path):
+    call(client, "/initialize", {"initial_cash": "10000"})
+    path += "&" if "?" in path else "?"
+    assert call(client, path + "_t=1794916800000", method="GET").status_code == 200
+    assert call(client, path + "unexpected=yes", method="GET").status_code == 400
 
 def test_notification_secrets_encrypted_and_redacted(client):
     call(client, "/initialize", {"initial_cash": "10000"})
@@ -156,3 +164,110 @@ def test_account_lock_timeout_returns_service_error_then_recovers(client, monkey
         blocker.rollback()
         response = call(client, '/state', method='GET')
         assert response.status_code == 200 and response.json['data']['account']['cash'] == '10000.00'
+
+
+def seed_review_day(client, monkeypatch):
+    from datetime import datetime, timezone
+    from app.ashare import web_api, web_store
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 11, 17, 2, 0, 5, tzinfo=timezone.utc)
+    monkeypatch.setattr(web_api, 'datetime', Clock)
+    monkeypatch.setattr(web_store, 'datetime', Clock)
+    call(client, '/initialize', {'initial_cash': '10000'})
+    call(client, '/settings', {'symbols': ['sz.000001', 'sh.600000'], 'interval_seconds': 5}, method='PUT')
+    quotes = [{'symbol': symbol, 'name': 'fixture', 'exchange_time': '2026-11-17T02:00:04+00:00',
+               'received_at': '2026-11-17T02:00:04+00:00', 'limit_down': '9', 'limit_up': '11',
+               'evidence_sha256': 'a' * 64} for symbol in ['sz.000001', 'sh.600000']]
+    with closing(psycopg2.connect(os.environ['TEST_ASHARE_DATABASE_URL'])) as conn:
+        WebStore(conn, 'user_' + str(client.test_user)).observe(quotes, {'state': 'healthy', 'observed_at': '2026-11-17T02:00:04+00:00'})
+    return [{'symbol': quote['symbol'], 'trading_day': '2026-11-17', 'suspended': False,
+             'st': False, 'evidence': 'Synthetic dated operator source 2026-11-17',
+             'limit_up': '11', 'limit_down': '9'} for quote in quotes]
+
+
+def test_review_suggestions_keep_unknowns_and_never_write_rules(client, monkeypatch):
+    seed_review_day(client, monkeypatch)
+    monkeypatch.setattr('app.ashare.review_assistance.dated_status', lambda *args: None)
+    response = call(client, '/rules/suggestions', method='GET')
+    assert response.status_code == 200
+    data = response.json['data']
+    assert data['requires_human_confirmation'] is True and data['auto_approval'] is False
+    assert len(data['rows']) == 2
+    assert data['rows'][0]['st'] is None and data['rows'][0]['suspended'] is None
+    assert set(data['rows'][0]['unknown_fields']) == {'st', 'suspended'}
+    assert call(client, '/state', method='GET').json['data']['rules'] == {}
+    assert call(client, '/rules/suggestions?tenant_id=user_1', method='GET').status_code == 400
+    assert client.get('/api/ashare-paper/rules/suggestions').status_code == 401
+    assert call(client, '/rules/suggestions', method='GET', token='other').json['data']['rows'][0]['quote_evidence'] is None
+
+
+def test_batch_review_is_atomic_explicit_and_per_tenant(client, monkeypatch):
+    rules = seed_review_day(client, monkeypatch)
+    monkeypatch.setattr('app.ashare.review_assistance.dated_status', lambda *args: None)
+    assert call(client, '/rules/review-batch', {'rules': rules}).status_code == 400
+    assert call(client, '/rules/review-batch', {'rules': rules, 'confirmed': 'true'}).status_code == 400
+    assert call(client, '/rules/review-batch', {'rules': rules, 'confirmed': True}, token='viewer').status_code == 403
+    bad = [rules[0], {**rules[1], 'limit_up': '12'}]
+    assert call(client, '/rules/review-batch', {'rules': bad, 'confirmed': True}).json['msg'] == 'daily_price_band_mismatch'
+    assert call(client, '/state', method='GET').json['data']['rules'] == {}
+    assert call(client, '/rules/review-batch', {'rules': [rules[0], rules[0]], 'confirmed': True}).status_code == 400
+    result = call(client, '/rules/review-batch', {'rules': rules, 'confirmed': True})
+    assert result.status_code == 200 and len(result.json['data']) == 2
+    assert all(row['approval_method'] == 'explicit_human_review' for row in result.json['data'])
+    assert len(call(client, '/state', method='GET').json['data']['rules']) == 2
+    assert call(client, '/state', method='GET', token='other').json['data']['rules'] == {}
+    previous = [{**rule, 'trading_day': '2026-11-16'} for rule in rules]
+    assert call(client, '/rules/review-batch', {'rules': previous, 'confirmed': True}).status_code == 400
+
+
+def test_negative_dated_source_cannot_be_overridden_by_human_false(client, monkeypatch):
+    rules = seed_review_day(client, monkeypatch)
+    monkeypatch.setattr('app.ashare.review_assistance.dated_status', lambda *args: {'st': True, 'suspended': False})
+    candidates = call(client, '/rules/suggestions', method='GET').json['data']['rows']
+    assert all('source_reports_ineligible_security' in row['blockers'] for row in candidates)
+    assert call(client, '/rules/review', rules[0]).json['msg'] == 'source_reports_ineligible_security'
+    assert call(client, '/rules/review-batch', {'rules': rules, 'confirmed': True}).json['msg'] == 'source_reports_ineligible_security'
+    assert call(client, '/state', method='GET').json['data']['rules'] == {}
+
+
+def test_universe_request_bounds_and_authentication(client, monkeypatch):
+    from app.ashare.securities import SecuritiesStore
+    seen = []
+    def universe(self, day, **kwargs):
+        seen.append((day.isoformat(), kwargs))
+        return {'trading_day': day.isoformat(), 'members': [], 'status': 'not_observed', 'total': 0}
+    monkeypatch.setattr(SecuritiesStore, 'universe', universe)
+    result = call(client, '/universe?trading_day=2026-11-16&limit=100&offset=100', method='GET', token='viewer')
+    assert result.status_code == 200 and result.json['data']['status'] == 'not_observed'
+    assert seen[0][1]['limit'] == 100 and seen[0][1]['offset'] == 100
+    for query in ['trading_day=2099-01-01', 'trading_day=2026-11-16&limit=501', 'trading_day=2026-11-16&offset=-1', 'trading_day=2026-11-16&tenant_id=x', 'trading_day=bad']:
+        assert call(client, '/universe?' + query, method='GET').status_code == 400
+    assert client.get('/api/ashare-paper/universe?trading_day=2026-11-16').status_code == 401
+
+
+def test_research_preferences_persist_per_account_without_activating_strategy(client):
+    call(client, '/initialize', {'initial_cash': '10000'})
+    settings = {'symbols': ['sz.000001'], 'interval_seconds': 5,
+                'research_preferences': {'topics': ['ai', 'robotics', 'new_energy'], 'follow_current_events': True,
+                                         'custom_topics': 'Battery storage'}}
+    assert call(client, '/settings', settings, method='PUT').status_code == 200
+    saved = call(client, '/state', method='GET').json['data']
+    assert saved['settings']['research_preferences'] == settings['research_preferences']
+    assert 'strategy' not in saved['settings']
+    assert call(client, '/state', method='GET', token='other').json['data']['settings'].get('research_preferences') is None
+    assert call(client, '/settings', {key: value for key, value in settings.items() if key != 'research_preferences'}, method='PUT').json['data']['research_preferences'] == settings['research_preferences']
+    for preferences in [{'topics': ['fake']}, {'topics': ['ai', 'ai']}, {'follow_current_events': 'true'}, {'custom_topics': 'x' * 241}, {'auto_approve': True}]:
+        assert call(client, '/settings', {**settings, 'research_preferences': preferences}, method='PUT').status_code == 400
+
+
+def test_corrupt_source_stays_blocked_without_fallback(client, monkeypatch):
+    rules = seed_review_day(client, monkeypatch)
+    def broken_source(*args):
+        raise ValueError('security_evidence_hash_mismatch')
+    monkeypatch.setattr('app.ashare.review_assistance.dated_status', broken_source)
+    candidates = call(client, '/rules/suggestions', method='GET').json['data']['rows']
+    assert all('security_evidence_unavailable' in row['blockers'] for row in candidates)
+    assert call(client, '/rules/review', rules[0]).status_code == 400
+    assert call(client, '/state', method='GET').json['data']['rules'] == {}

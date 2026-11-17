@@ -13,6 +13,7 @@ ENV PYTHONPATH=/app
 COPY backend_api_python/ ./
 COPY deploy/ashare/runtime_check.py deploy/ashare/bootstrap.py /opt/paper/
 RUN groupadd --gid 10001 paper && useradd --uid 10001 --gid paper --create-home paper \
-    && mkdir -p /app/logs /app/data/evidence && chown -R paper:paper /app/logs /app/data
+    && mkdir -p /app/logs /app/data/evidence /app/settings \
+    && chown -R paper:paper /app/logs /app/data /app/settings && chmod 0700 /app/settings
 USER 10001:10001
 CMD ["gunicorn", "-c", "gunicorn_config.py", "run:app"]

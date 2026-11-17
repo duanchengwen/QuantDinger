@@ -33,12 +33,26 @@ class WebStore:
             cursor.execute("INSERT INTO qd_ashare_web(tenant_id,account_id) VALUES(%s,%s) ON CONFLICT DO NOTHING", self.key)
         return result
 
-    def save_settings(self, symbols, interval_seconds):
+    def save_settings(self, symbols, interval_seconds, research_preferences=None):
         if not isinstance(symbols, list) or not 1 <= len(symbols) <= 30 or any(not supported(s) for s in symbols) or len(set(symbols)) != len(symbols):
             raise ValueError("invalid_symbols")
         if type(interval_seconds) is not int or not 2 <= interval_seconds <= 3600:
             raise ValueError("invalid_interval")
-        settings = {"symbols": symbols, "interval_seconds": interval_seconds}
+        if research_preferences is None:
+            research_preferences = self.settings().get("research_preferences", {})
+        if not isinstance(research_preferences, dict) or set(research_preferences) - {"topics", "follow_current_events", "custom_topics"}:
+            raise ValueError("invalid_research_preferences")
+        topics = research_preferences.get("topics", [])
+        follow_events = research_preferences.get("follow_current_events", False)
+        custom = research_preferences.get("custom_topics", "")
+        if (not isinstance(topics, list) or len(topics) > 4
+                or any(topic not in ("ai", "robotics", "new_energy", "semiconductors") for topic in topics)
+                or len(set(topics)) != len(topics) or type(follow_events) is not bool
+                or not isinstance(custom, str) or len(custom) > 240):
+            raise ValueError("invalid_research_preferences")
+        settings = {"symbols": symbols, "interval_seconds": interval_seconds,
+                    "research_preferences": {"topics": topics, "follow_current_events": follow_events,
+                                             "custom_topics": custom.strip()}}
         snapshot = self.broker.snapshot(history_limit=200)
         active = {row["symbol"] for row in snapshot["positions"]}
         active.update(row["symbol"] for row in snapshot["orders"] if row["status"] in ("open", "partial"))
@@ -49,11 +63,15 @@ class WebStore:
         return settings
 
     def review(self, rule):
+        return self.review_many([rule])[0]
+
+    def review_many(self, rules):
         self.broker.snapshot(history_limit=200)
         with self.connection, self.connection.cursor() as cursor:
-            cursor.execute("UPDATE qd_ashare_web SET rules=rules || %s::jsonb,updated_at=now() WHERE tenant_id=%s AND account_id=%s", (json.dumps({rule["symbol"]: rule}, default=str), *self.key))
-            cursor.execute("INSERT INTO qd_ashare_audit(tenant_id,account_id,event,details) VALUES (%s,%s,'daily_rules_reviewed',%s::jsonb)", (*self.key, json.dumps(rule, default=str)))
-        return rule
+            cursor.execute("UPDATE qd_ashare_web SET rules=rules || %s::jsonb,updated_at=now() WHERE tenant_id=%s AND account_id=%s", (json.dumps({rule["symbol"]: rule for rule in rules}, default=str), *self.key))
+            for rule in rules:
+                cursor.execute("INSERT INTO qd_ashare_audit(tenant_id,account_id,event,details) VALUES (%s,%s,'daily_rules_reviewed',%s::jsonb)", (*self.key, json.dumps(rule, default=str)))
+        return rules
 
     def observe(self, quotes, worker):
         with self.connection, self.connection.cursor() as cursor:

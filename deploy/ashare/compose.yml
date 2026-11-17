@@ -23,6 +23,7 @@ x-env: &env
   ENABLE_PORTFOLIO_MONITOR: "false"
   ENABLE_GRID_FILL_POLLER: "false"
   POSITION_SYNC_ENABLED: "false"
+  SHOW_CN_STOCK: "true"
   LIVE_TRADING_ENABLED: "false"
   AGENT_LIVE_TRADING_ENABLED: "false"
   AI_AUTO_PROMOTION_ENABLED: "false"
@@ -30,6 +31,7 @@ x-env: &env
   DB_POOL_MIN: "1"
   DB_POOL_MAX: "12"
   LOG_DIR: /app/logs
+  QUANTDINGER_ENV_FILE: /app/settings/runtime.env
   SMTP_HOST: ${SMTP_HOST:-}
   SMTP_PORT: ${SMTP_PORT:-587}
   SMTP_USER: ${SMTP_USER:-}
@@ -47,7 +49,7 @@ x-app: &app
   logging: *log
   security_opt: [no-new-privileges:true]
   cap_drop: [ALL]
-  volumes: [evidence:/app/data, logs:/app/logs]
+  volumes: [evidence:/app/data, logs:/app/logs, settings:/app/settings]
   tmpfs: [/tmp]
   stop_grace_period: 45s
 services:
@@ -116,3 +118,4 @@ volumes:
   postgres:
   evidence:
   logs:
+  settings:

@@ -63,6 +63,12 @@ def body(allowed):
     return data
 
 
+def query_fields(allowed):
+    # The official Vue request interceptor appends this cache-busting field.
+    if set(request.args) - (set(allowed) | {"_t"}):
+        raise ValueError("unexpected_fields")
+
+
 @blueprint.get("/state")
 @endpoint()
 def state(store):
@@ -73,8 +79,7 @@ def state(store):
 @endpoint()
 def daily_reports(store):
     from app.ashare.operations import list_daily_reports
-    if set(request.args) - {"limit"}:
-        raise ValueError("unexpected_fields")
+    query_fields({"limit"})
     try:
         limit = int(request.args.get("limit", "30"))
     except ValueError:
@@ -90,48 +95,62 @@ def initialize(store):
     return store.initialize(body({"initial_cash"})["initial_cash"])
 
 
+@blueprint.get("/universe")
+@endpoint()
+def universe(store):
+    from datetime import date
+    from app.ashare.securities import SecuritiesStore
+    query_fields({"trading_day", "limit", "offset"})
+    day = date.fromisoformat(request.args.get("trading_day", ""))
+    now = datetime.now(timezone.utc)
+    if day > now.astimezone(SHANGHAI).date():
+        raise ValueError("future_universe_not_available")
+    limit, offset = int(request.args.get("limit", "100")), int(request.args.get("offset", "0"))
+    if not 1 <= limit <= 500 or not 0 <= offset <= 20000:
+        raise ValueError("invalid_universe_pagination")
+    return SecuritiesStore(store.connection).universe(day, known_at=now, limit=limit, offset=offset)
+
+
 @blueprint.put("/settings")
 @endpoint(write=True)
 def settings(store):
-    data = body({"symbols", "interval_seconds"})
-    return store.save_settings(data["symbols"], data["interval_seconds"])
+    data = body({"symbols", "interval_seconds", "research_preferences"})
+    return store.save_settings(data["symbols"], data["interval_seconds"], data.get("research_preferences"))
+
+
+@blueprint.get("/rules/suggestions")
+@endpoint()
+def rule_suggestions(store):
+    from app.ashare.review_assistance import suggestions
+    query_fields(set())
+    return suggestions(store, datetime.now(timezone.utc))
 
 
 @blueprint.post("/rules/review")
 @endpoint(write=True)
 def review(store):
-    data = body({"symbol", "trading_day", "suspended", "st", "evidence", "limit_up", "limit_down"})
+    from app.ashare.review_assistance import RULE_FIELDS, validated_review
+    return store.review(validated_review(store, body(RULE_FIELDS), datetime.now(timezone.utc), g.user_id))
+
+
+@blueprint.post("/rules/review-batch")
+@endpoint(write=True)
+def review_batch(store):
+    from app.ashare.review_assistance import validated_review
+    data = body({"rules", "confirmed"})
+    rules = data.get("rules")
+    if data.get("confirmed") is not True:
+        raise ValueError("explicit_human_confirmation_required")
+    if not isinstance(rules, list) or not 1 <= len(rules) <= 30:
+        raise ValueError("invalid_review_batch")
+    if any(not isinstance(rule, dict) or not isinstance(rule.get("symbol"), str) for rule in rules):
+        raise ValueError("invalid_review_batch")
+    if len({rule["symbol"] for rule in rules}) != len(rules):
+        raise ValueError("duplicate_review_symbol")
     now = datetime.now(timezone.utc)
-    if data["symbol"] not in store.settings()["symbols"]:
-        raise ValueError("symbol_not_configured")
-    if not isinstance(data.get("evidence"), str) or not 3 <= len(data["evidence"]) <= 1000:
-        raise ValueError("review_evidence_required")
-    rule = {**data, "reviewed": True, "is_trading_day": True,
-            "reviewed_at": now.isoformat(), "reviewed_by": g.user_id}
-    reviewed_rules({"rules": {data["symbol"]: rule}}, data["symbol"], now)
-    # The calendar is a separately maintained source; human review cannot open a holiday.
-    from app.ashare.calendar_rules import trading_day_status
-    calendar = trading_day_status(now.astimezone(SHANGHAI).date())
-    if not calendar["is_trading_day"]:
-        raise ValueError("not_trading_day")
-    quotes = [quote for quote in store.state()["quotes"] if quote["symbol"] == data["symbol"]]
-    if not quotes:
-        raise ValueError("daily_quote_evidence_required")
-    quote = quotes[0]
-    quoted_at = datetime.fromisoformat(quote["exchange_time"])
-    if quoted_at.utcoffset() is None or quoted_at > now or quoted_at.astimezone(SHANGHAI).date() != now.astimezone(SHANGHAI).date():
-        raise ValueError("daily_quote_evidence_expired")
-    for field in ("limit_up", "limit_down"):
-        if Decimal(str(quote[field])) != Decimal(str(rule[field])):
-            raise ValueError("daily_price_band_mismatch")
-    import re
-    if not re.fullmatch(r"[0-9a-f]{64}", str(quote.get("evidence_sha256", ""))):
-        raise ValueError("daily_quote_evidence_hash_required")
-    rule["quote_evidence"] = {key: quote.get(key) for key in (
-        "source", "symbol", "exchange_time", "received_at", "quote_id",
-        "evidence_sha256", "evidence_path", "limit_up", "limit_down",
-    )}
-    return store.review(rule)
+    snapshot = store.state()
+    validated = [validated_review(store, rule, now, g.user_id, snapshot) for rule in rules]
+    return store.review_many(validated)
 
 
 @blueprint.post("/orders")

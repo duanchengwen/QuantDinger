@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import tempfile
 from typing import Dict
 
 from dotenv import dotenv_values
@@ -43,6 +44,9 @@ def write_env_file(env_values: Dict[str, str], path: str = ENV_FILE_PATH) -> boo
     """Write .env values while preserving existing comments and formatting."""
     lines = []
     existing_keys = set()
+    if os.path.islink(path):
+        logger.error("Refusing to replace a symlink settings file")
+        return False
 
     if os.path.exists(path):
         try:
@@ -66,6 +70,7 @@ def write_env_file(env_values: Dict[str, str], path: str = ENV_FILE_PATH) -> boo
                         lines.append(original_line)
         except Exception as exc:
             logger.error("Failed to read .env file for update: %s", exc)
+            return False
 
     new_keys = set(env_values.keys()) - existing_keys
     if new_keys:
@@ -75,13 +80,25 @@ def write_env_file(env_values: Dict[str, str], path: str = ENV_FILE_PATH) -> boo
         for key in sorted(new_keys):
             lines.append(_format_env_line(key, env_values[key]))
 
+    temporary_path = None
     try:
-        with open(path, "w", encoding="utf-8") as handle:
+        descriptor, temporary_path = tempfile.mkstemp(prefix=".settings-", dir=os.path.dirname(os.path.abspath(path)))
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
             handle.writelines(lines)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, path)
+        temporary_path = None
         return True
     except Exception as exc:
         logger.error("Failed to write .env file: %s", exc)
         return False
+    finally:
+        if temporary_path is not None:
+            try:
+                os.unlink(temporary_path)
+            except FileNotFoundError:
+                pass
 
 
 def _format_env_line(key: str, value) -> str:

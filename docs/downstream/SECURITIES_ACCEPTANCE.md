@@ -1,0 +1,56 @@
+# Dated securities, review assistance and configuration acceptance — 2026-11-17
+
+[中文](SECURITIES_ACCEPTANCE_CN.md) · [User guide](USER_GUIDE.md) · [Source assessment](SECURITIES.md) · [Actual backlog](backlog.json)
+
+## Delivered and real-data limits
+
+Three parallel agents implemented and independently reviewed this increment. The root agent tested, built and deployed the combined result at `http://127.0.0.1:5177/#/ashare-paper`. Live broker access and automatic AI strategy promotion remain prohibited. Password/session versions, virtual cash, positions, orders and fills match pre-upgrade fingerprints.
+
+Actual BaoStock receipts exist for **2026-11-13 and 2026-11-17**, each containing **5,224 supported Shanghai/Shenzhen symbols** and one selected security's unadjusted daily status. Retrieval times were 19:59:53 and 19:56:38 Shanghai time respectively. November 16 remains missing after later SDK login timeouts. The latest scheduled job failed; successful partial receipts are retained. This is not acceptance of stable provider availability or complete historical coverage.
+
+The symbol sets match, while three provider trading-status observations differ (sh.605255, sz.000831, sz.002129); the watched stock also has different dated closing prices. Every page and selected status was checked against the corresponding original receipt. This establishes distinct observed dated responses, not exchange certification.
+
+November 17 source SHA-256: `07a5f3c820cc474130e23b1bf06e31b2f30a53d741faa5f4f7e14bf70e396068`. November 13: `bd306b1c5bcd68afc1a392bc435682250afc3e9b332be570a58cf62c9fb677dc`. Evidence is canonical original SDK decoded fields/rows and request parameters, not raw transport bytes. Query paths check identity, dates, hashes and normalized content against database details. No current constituents fill missing dates. Conservative knowledge time is retrieval time, not a certified historic publication timestamp. EOD observations do not authorize earlier intraday or next-session trading. IPO/relisting/corporate-action certification remains unavailable.
+
+## Features and fixes
+
+- Append-only dated receipts, universe membership and selected daily status tables, shared schema migration and evidence backup.
+- Historical-pool UI with source, date, retrieval time and hash, explicit missing-date warning and bounded pagination.
+- Same-day evidence suggestions and all-or-none, explicitly human-confirmed batch reviews. Unknown fields stay unknown; negative status, names and corrupt evidence block approval. No automatic carry-forward.
+- Account-scoped theme preferences; the user's AI, robotics, new-energy and current-events preferences were saved. This is preference persistence, not an enabled autonomous research/execution workflow.
+- Top-level Feishu shortcut and richer newly generated daily-report summaries: actual ledger cash/trades/fees/positions/reconciliation. Missing valuation/PnL/return, recommendations or strategy updates are labelled unavailable. Bounded messages disclose truncation, old reports are not resent and uncertain delivery is not retried. No extra real test message was sent.
+- Settings-save fix: mutable configuration now resides on a private persistent volume at `/app/settings/runtime.env`, directory0700/file0600, non-root UID10001, atomic replacement and failure preservation. Backups include it and accept legacy bundles. It is not encryption at rest.
+- Official A-share picker visibility enabled only in this isolated deployment. Browser search for 平安银行 returns000001. CNStock metadata is normalized to equity while preserving identities and crypto product semantics.
+- Official Vue `_t` cache parameter is accepted by the strict read endpoints; other unknown fields remain rejected. This fixed actual browser errors in pool/report/review queries.
+
+## Verification
+
+| Check | Result |
+| --- | --- |
+| Python3.11, real PostgreSQL, focused backend suite | 289 passed,1 explicitly deselected |
+| Python3.12, same suite | 289 passed,1 explicitly deselected |
+| Deployment/backup/sync/monitor tests | 36 passed |
+| Frontend state tests | 10 passed |
+| Official Vue production build and ESLint | Passed, upstream chunk-size warning remains |
+| Ruff, backend structural guard and docs | Passed |
+| Actual HTTP/security/configuration/data checks | 18 passed;19 paper-core file hashes match deployment |
+| Full isolated restore with new settings archive | 16 table fingerprints,3886 evidence files and1 settings file match; correct permissions/non-root ownership |
+| Browser | A-share search, real pool and saved topic preferences verified; no approval or trade submitted |
+
+Excluded upstream retired case: `retired_parameter_tuning_is_not_exposed_or_billable`; four existing calendar/pandas deprecation warnings. This is not the full upstream suite, remote CI or a Windows execution. The expanded Python3.12 settings suite first failed because the test environment lacked Redis/bs4 dependencies; after environment repair, the complete selected suite passed.
+
+The production settings-save probe used only `JEV_ENABLED=false`; no real model key was submitted, logged or sent to an inference service. A fresh process verified persisted settings. The user's earlier failed model-key save did not persist and requires re-entry. Restore testing started only an isolated database, never its API or worker; only that created drill project and copied private state were cleaned afterward.
+
+## Operations and unfinished work
+
+Four production services are healthy, ledger/quote evidence and backup checks pass. Overall monitoring is nevertheless **attention** because the reference-data job failed. Its bounded per-date attempts now run newest-first, preserve successes and report failures; no stale/current-list substitution hides a failure.
+
+The installed local reference-data timer runs at19:10 Asia/Shanghai with up to60s jitter, requesting the latest three completed sessions and at most30 watched/exposed securities' daily detail rows. Each SDK child has a deadline; the outer job is capped at300s and shares the deployment/backup operation lock.19:00 is an application cutoff, not a vendor availability promise.
+
+A30-minute follow-up was created in this chat to inspect actual backlog/monitoring evidence and continue authorized fixes/tests/pushes, quiet when unchanged. Local work requires the host and desktop application running and the project accessible; this cannot guarantee third-party uptime or completion of every backlog item.
+
+Only November17 has natural wall-clock simulation observations, starting partway through the day. Historical download dates do not count as natural simulation days. Five-date/full-session gap acceptance remains open.
+
+The complete desired loop—sector news, AI stock recommendations, approved-strategy automatic paper execution, optimization and human activation of new strategy versions—is **not yet connected** to this ledger. Reliable news timestamps, dated theme memberships, recommendation evidence, approval/versioning and strategy execution/research budgets remain explicit in the backlog. DeepSeek configuration is user-provided; Jev is optional and Laya is researched but not deployed. Webhooks are one-way, not interactive approvals. Missing valuation is never replaced with invented returns.
+
+Local evidence resides outside Git under `work/quantdinger-securities-acceptance/`; private backup under `runtime/quantdinger-paper-backups/securities-settings-20261117/`. No credentials, private settings or backups are committed.

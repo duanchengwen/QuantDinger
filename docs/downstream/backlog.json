@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "updated_on": "2026-11-17",
+  "workflow_policy": {
+    "execution": "paper_only",
+    "new_strategy_activation": "explicit_human_approval",
+    "approved_strategy_auto_paper": "planned",
+    "ai_auto_promotion": false
+  },
+  "items": [
+    {
+      "id": "durable_paper_deployment",
+      "status": "accepted",
+      "acceptance": "Persistent local paper-only deployment, restart, backup and restore evidence in LONGRUN_ACCEPTANCE_CN.md."
+    },
+    {
+      "id": "historical_dated_universe",
+      "status": "partial_real_data",
+      "acceptance": "Actual Nov13 and Nov17 BaoStock receipts each have 5224 supported symbols. Nov16 follow-up login timed out; scheduled job reports failure, retaining successes. Multi-date completeness and stable availability remain open."
+    },
+    {
+      "id": "daily_security_observations",
+      "status": "accepted_limited_scope",
+      "acceptance": "Real Nov13/17 unadjusted EOD status for one watched symbol per date, raw hashes and retrieval times retained. Not full-market ST coverage, exchange certification, intraday authority or next-day approval."
+    },
+    {
+      "id": "review_assistance",
+      "status": "accepted",
+      "acceptance": "Same-day band suggestions, explicit per-row human batch review, no automatic approval; source conflicts/corruption block."
+    },
+    {
+      "id": "theme_preferences_panel",
+      "status": "accepted",
+      "acceptance": "Account-specific AI/robotics/new-energy/semiconductor preferences; saving choices does not start research or trading."
+    },
+    {
+      "id": "natural_multiday_validation",
+      "status": "observing",
+      "acceptance": "At least five actual trading dates, partial first day separate; inspect per-session gaps, source evidence, reports and reconciliation. Sample date count alone is insufficient."
+    },
+    {
+      "id": "certified_intraday_security_status",
+      "status": "needs_data_source",
+      "acceptance": "Exchange-quality intraday suspension/ST/listing/relisting/corporate-action status and complete daily bands need a validated source; unknown remains human-reviewed."
+    },
+    {
+      "id": "reliable_theme_membership",
+      "status": "pending",
+      "acceptance": "Dated thematic memberships with publication and knowledge times; no current constituent backfill."
+    },
+    {
+      "id": "scheduled_news_ingestion",
+      "status": "pending",
+      "acceptance": "Original reliable news URLs, publication/retrieval times, raw hashes, deduplication, prompt-injection boundaries and availability checks."
+    },
+    {
+      "id": "deepseek_research_agent",
+      "status": "needs_user_configuration",
+      "acceptance": "Use existing model service for research after user configures key in app; no key in chat; preserve research inputs/results and cost."
+    },
+    {
+      "id": "recommendations_and_approval",
+      "status": "pending",
+      "acceptance": "Evidence-based stock candidates and versioned strategies; user approves exact version before enabling simulation."
+    },
+    {
+      "id": "approved_strategy_auto_paper",
+      "status": "pending",
+      "acceptance": "Approved immutable strategy version, account risk budgets, broker interface, idempotent automatic PAPER orders, rollback and audit."
+    },
+    {
+      "id": "strategy_optimization",
+      "status": "pending",
+      "acceptance": "VectorBT/Backtrader/Optuna research with point-in-time universe, cost assumptions, holdout evaluation and human strategy promotion."
+    },
+    {
+      "id": "industry_rotation",
+      "status": "pending",
+      "acceptance": "Weekly out-of-sample evaluation and human-approved weight changes; Feishu interactive approval separate from webhook."
+    },
+    {
+      "id": "laya_provider",
+      "status": "under_review",
+      "acceptance": "Evaluate PR358/Laya API, license, isolation and provider-specific held-out Chinese A-share calibration; not required for paper simulation."
+    },
+    {
+      "id": "windows_and_remote_ci",
+      "status": "needs_external_validation",
+      "acceptance": "Ubuntu local tests do not establish Windows or GitHub CI execution; workflow credentials currently insufficient."
+    },
+    {
+      "id": "feishu_delivery",
+      "status": "user_configured_unverified",
+      "acceptance": "User has configured Webhook; new-report detailed paper summaries implemented and tested. No extra real test message sent by agent, actual receipt remains user-verified. AI recommendations/strategy updates are labelled unavailable until implemented."
+    },
+    {
+      "id": "calendar_2027",
+      "status": "needs_verified_calendar",
+      "acceptance": "Calendar verified coverage currently ends 2026-12-31; matching must remain closed outside known coverage."
+    },
+    {
+      "id": "live_trading_and_ai_auto_promotion",
+      "status": "prohibited",
+      "acceptance": "No live broker connection and no automatic AI strategy promotion; not a deliverable to unlock."
+    },
+    {
+      "id": "model_settings_persistence",
+      "status": "accepted",
+      "acceptance": "Actual official settings/save returned success, private persistent runtime.env mode0600 / parent0700 nonroot UID10001, restart retained setting; no real API key/model request needed for test."
+    },
+    {
+      "id": "official_ashare_watchlist",
+      "status": "accepted",
+      "acceptance": "Official picker exposes A股; real browser search 平安银行 returns000001. CNStock metadata normalized to equity, stable asset IDs retained."
+    },
+    {
+      "id": "daily_feishu_ledger_summary",
+      "status": "accepted_pending_delivery",
+      "acceptance": "Newly generated daily reports format actual ledger, positions, fees and reconciliation. No fabricated mark-to-market returns, selection or strategy changes. Delivery is best-effort, no retry on unknown result."
+    }
+  ]
+}

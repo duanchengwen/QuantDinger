@@ -47,3 +47,5 @@ git config branch.ashare-paper.pushRemote origin
 保留官方的账户、研究界面、持久化、租户隔离与任务框架；将 A 股规则和行情证据通过清晰适配接口接入，必要的核心补丁保持小而独立。已有独立项目的模块和测试作为迁移参考，不直接复制其 SQLite 运行模式替代这里的 PostgreSQL。
 
 官方已有 CNStock paper 路径，但当前虚拟账户算法不能直接验收为完整 A 股现金模拟券商。后端 Apache-2.0 不代表前端采用相同许可；前端独立仓库的许可、商标和归属要求需单独遵守。未来真实券商适配需要另行授权和验收；统一接口能减少迁移工作，但不能保证模拟成交与真实成交完全一致。
+
+最新版本：[本轮验收](SECURITIES_ACCEPTANCE_CN.md) · [个人使用教程](USER_GUIDE_CN.md) · [实际待办](backlog.json)。

@@ -17,6 +17,7 @@ import threading
 import psycopg2
 
 from app.ashare.calendar_rules import market_session
+from app.ashare.daily_notification import format_daily_notification
 from app.ashare.market import fetch_quotes
 from app.ashare.notifications import notify_text
 from app.ashare.operations import complete_daily_reports, reconcile_account, record_poll, write_heartbeat
@@ -136,10 +137,14 @@ class ManagedWorker:
         if self.notifications_enabled and (worker["fills"] or changed or reports):
             try:
                 credentials = store.notification_credentials()
-                notification = self.notifier(
+                message = (format_daily_notification(
+                    reports, settings["symbols"], account_id=account_id,
+                    worker_state=worker["state"]) if reports else
                     f"[模拟交易] {account_id} 状态={worker['state']} "
                     f"本轮虚拟成交={len(worker['fills'])} 时间={worker['observed_at']} "
-                    f"新增模拟日报={len(reports)}",
+                    f"新增模拟日报={len(reports)}")
+                notification = self.notifier(
+                    message,
                     webhook_url=credentials.get("webhook_url", ""),
                     signing_secret=credentials.get("signing_secret", ""),
                 )

@@ -21,6 +21,8 @@ class PaperStackTests(unittest.TestCase):
         root.mkdir()
         for name in ('database.dump', 'config.env', 'ledger.json'):
             (root / name).write_text('{}')
+        with tarfile.open(root / 'settings.tar.gz', 'w:gz'):
+            pass
         with tarfile.open(root / 'evidence.tar.gz', 'w:gz') as tar:
             info = tarfile.TarInfo('../escape' if unsafe else './evidence/raw.bin')
             info.size = 4
@@ -32,6 +34,30 @@ class PaperStackTests(unittest.TestCase):
             root = Path(temporary) / 'backup'
             self.bundle(root)
             self.assertEqual(set(ops.verify_backup(root)['files']), ops.ALLOWED_BACKUP_FILES)
+
+    def test_legacy_backup_without_settings_remains_restorable(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / 'backup'
+            self.bundle(root)
+            manifest = json.loads((root / 'manifest.json').read_text())
+            manifest['files'].pop('settings.tar.gz')
+            (root / 'settings.tar.gz').unlink()
+            (root / 'manifest.json').write_text(json.dumps(manifest))
+            self.assertEqual(set(ops.verify_backup(root)['files']), ops.LEGACY_BACKUP_FILES)
+
+    def test_settings_archive_traversal_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / 'backup'
+            self.bundle(root)
+            with tarfile.open(root / 'settings.tar.gz', 'w:gz') as archive:
+                member = tarfile.TarInfo('../secret')
+                member.size = 0
+                archive.addfile(member, io.BytesIO())
+            manifest = json.loads((root / 'manifest.json').read_text())
+            manifest['files']['settings.tar.gz'] = ops.sha256(root / 'settings.tar.gz')
+            (root / 'manifest.json').write_text(json.dumps(manifest))
+            with self.assertRaisesRegex(ValueError, 'Unsafe'):
+                ops.verify_backup(root)
 
     def test_corrupted_dump_rejected_before_docker(self):
         with tempfile.TemporaryDirectory() as temporary:

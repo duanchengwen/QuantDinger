@@ -47,3 +47,5 @@ git config branch.ashare-paper.pushRemote origin
 Retain upstream accounts, research UI, persistence, tenancy and job infrastructure. Integrate A-share rules and data evidence through explicit adapters and keep necessary core patches small. Reuse the earlier standalone project's modules and tests as migration references; do not replace this system's PostgreSQL authority with its SQLite runtime.
 
 Upstream has a genuine CNStock paper path, but its current virtual-account algorithm does not meet complete A-share cash-broker acceptance. Backend Apache-2.0 licensing does not cover the separately licensed frontend; review its license, trademark and attribution obligations. Future real-broker integration requires separate authorization and acceptance. Shared interfaces reduce migration work but cannot make simulated and real fills identical.
+
+Current increment: [acceptance](SECURITIES_ACCEPTANCE.md) · [personal user guide](USER_GUIDE.md) · [actual backlog](backlog.json).

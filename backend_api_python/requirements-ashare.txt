@@ -7,3 +7,4 @@ requests==2.34.2
 tzdata==2026.2
 exchange-calendars==4.13.2
 cryptography==50.0.2
+baostock==0.9.4

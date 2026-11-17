@@ -2,7 +2,7 @@
   <main class="ashare-paper qd-workspace-page" :class="{ 'theme-dark': isDarkTheme }">
     <header class="paper-heading">
       <div><a-tag color="cyan">{{ t('paper') }}</a-tag><h1>{{ t('title') }}</h1><p>{{ t('subtitle') }}</p></div>
-      <div class="paper-health"><a-tag :color="workerFresh ? 'green' : 'orange'">{{ t('worker') }}: {{ workerLabel }}</a-tag><br><small>{{ t('updated') }} {{ formatTime(updatedAt) }}</small><a-button :loading="loading" @click="refresh">{{ t('refresh') }}</a-button></div>
+      <div class="paper-health"><a-tag :color="workerFresh ? 'green' : 'orange'">{{ t('worker') }}: {{ workerLabel }}</a-tag><br><small>{{ t('updated') }} {{ formatTime(updatedAt) }}</small><a-button :loading="loading" @click="refresh">{{ t('refresh') }}</a-button><a-button @click="showFeishu">{{ t('feishu') }}</a-button></div>
     </header>
     <a-alert v-if="error" type="error" show-icon :message="error" class="paper-alert" />
     <a-alert v-if="readOnly" type="info" :message="t('readOnly')" class="paper-alert" />
@@ -17,7 +17,7 @@
     </section>
 
     <a-card :title="t('quotes')" class="paper-section">
-      <small slot="extra">{{ t('quoteHint') }}</small>
+      <div slot="extra"><small>{{ t('quoteHint') }}</small> <a-button :disabled="readOnly || !state.account" :loading="suggestionsLoading" @click="openBatchReview">{{ t('batchReview') }}</a-button></div>
       <a-table
         :columns="quoteColumns"
         :data-source="state.quotes || []"
@@ -61,7 +61,7 @@
 
     <a-card class="paper-section">
       <p v-if="historyTruncated" class="paper-muted">{{ t('historyBounded') }}</p>
-      <a-tabs v-model="activeTab" @change="onTabChange">
+      <a-tabs ref="detailTabs" v-model="activeTab" @change="onTabChange">
         <a-tab-pane key="orders" :tab="t('orders')">
           <a-table
             :columns="orderColumns"
@@ -102,11 +102,28 @@
             <template slot="side" slot-scope="value">{{ t(value) }}</template><template slot="status" slot-scope="value">{{ t('state.' + value) }}</template><template slot="time" slot-scope="value">{{ formatTime(value) }}</template>
           </a-table>
         </a-tab-pane>
+        <a-tab-pane key="universe" :tab="t('universe')">
+          <p class="paper-muted">{{ t('universeHelp') }}</p>
+          <a-form layout="inline" @submit.prevent="queryUniverse"><a-form-item :label="t('tradingDay')"><a-input v-model="universeDay" placeholder="YYYY-MM-DD" /></a-form-item><a-form-item><a-button html-type="submit" :loading="universeLoading">{{ t('queryUniverse') }}</a-button></a-form-item></a-form>
+          <a-alert v-if="universeError" type="error" :message="universeError" class="paper-alert" />
+          <a-alert v-if="universeResult && universeResult.status === 'not_observed'" type="warning" :message="t('universeMissing')" class="paper-alert" />
+          <p v-else-if="universeResult" class="paper-muted">{{ t('universeCount', { count: universeResult.total || 0 }) }} · {{ universeResult.trading_day }} · {{ universeResult.source }}<br>{{ t('received') }} {{ formatTime(universeResult.received_at) }}<br>{{ t('evidenceHash') }}: {{ universeResult.source_hash }}</p>
+          <a-table :columns="universeColumns" :data-source="universeRows" row-key="symbol" size="small" :pagination="false">
+            <template slot="status" slot-scope="value">{{ value == null ? t('unknown') : value === true || value === '1' ? t('yes') : t('no') }}</template>
+            <template slot="emptyText">{{ t('universeMissing') }}</template>
+          </a-table>
+          <a-button :disabled="universeOffset === 0 || universeLoading" @click="pageUniverse(-100)">{{ t('previous') }}</a-button> <a-button :disabled="universeRows.length < 100 || universeLoading" @click="pageUniverse(100)">{{ t('next') }}</a-button>
+        </a-tab-pane>
         <a-tab-pane key="settings" :tab="t('settings')">
+          <h3>{{ t('researchPreferences') }}</h3>
+          <p class="paper-muted">{{ t('researchPreferencesHelp') }}</p>
+          <a-checkbox-group v-model="researchPreferences.topics" :disabled="readOnly"><a-checkbox v-for="topic in ['ai', 'robotics', 'new_energy', 'semiconductors']" :key="topic" :value="topic">{{ t('topic.' + topic) }}</a-checkbox></a-checkbox-group>
+          <p><a-checkbox v-model="researchPreferences.follow_current_events" :disabled="readOnly">{{ t('followCurrentEvents') }}</a-checkbox></p>
+          <a-form-item :label="t('customTopics')"><a-input v-model="researchPreferences.custom_topics" :max-length="240" :disabled="readOnly" /></a-form-item>
           <a-form layout="vertical" @submit.prevent="saveSettings"><a-form-item :label="t('symbols')"><a-input v-model="settingsSymbols" placeholder="sz.000001,sh.600000" /></a-form-item><a-form-item :label="t('interval')"><a-input-number v-model="settingsInterval" :min="2" :max="3600" /></a-form-item><a-button html-type="submit" :disabled="readOnly || !state.account" :loading="busy">{{ t('save') }}</a-button></a-form>
         </a-tab-pane>
         <a-tab-pane key="feishu" :tab="t('feishu')">
-          <div class="paper-bot"><h3>{{ t('feishu') }} <a-tag :color="botConfigured ? 'green' : undefined">{{ botConfigured ? t('configured') : t('notConfigured') }}</a-tag><a-tag v-if="state.notifications && state.notifications.signing_enabled">{{ t('signingOn') }}</a-tag></h3>
+          <div ref="feishuSettings" class="paper-bot"><h3>{{ t('feishu') }} <a-tag :color="botConfigured ? 'green' : undefined">{{ botConfigured ? t('configured') : t('notConfigured') }}</a-tag><a-tag v-if="state.notifications && state.notifications.signing_enabled">{{ t('signingOn') }}</a-tag></h3>
             <p>{{ t('feishuHint') }}</p><ol class="paper-steps"><li>{{ t('feishuStep1') }}</li><li>{{ t('feishuStep2') }}</li><li>{{ t('feishuStep3') }}</li></ol>
             <p><a href="https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot" target="_blank" rel="noopener noreferrer">{{ t('feishuGuide') }}</a></p>
             <a-form layout="vertical" @submit.prevent="saveBot"><a-form-item :label="t('webhook')"><a-input-password v-model="bot.webhook_url" autocomplete="new-password" /></a-form-item><a-form-item :label="t('signing')"><a-input-password v-model="bot.signing_secret" autocomplete="new-password" /></a-form-item><p class="paper-muted">{{ t('secretHelp') }}</p><a-button html-type="submit" :disabled="readOnly || !bot.webhook_url || !state.account" :loading="busy">{{ t('saveBot') }}</a-button> <a-button :disabled="readOnly || !botConfigured" :loading="busy" @click="testBot">{{ t('testBot') }}</a-button> <a-button type="danger" :disabled="readOnly || !botConfigured || busy" @click="confirmDisableBot">{{ t('disableBot') }}</a-button></a-form>
@@ -114,6 +131,28 @@
         </a-tab-pane>
       </a-tabs>
     </a-card>
+
+    <a-modal
+      :visible="batchVisible"
+      :title="t('batchReview')"
+      :width="900"
+      :confirm-loading="busy"
+      :ok-button-props="{ props: { disabled: !batchCanSave } }"
+      @ok="saveBatchReview"
+      @cancel="batchVisible = false">
+      <a-alert type="info" :message="t('batchHelp')" class="paper-alert" />
+      <p>{{ t('tradingDay') }}: {{ batchDay }}</p>
+      <div v-for="row in reviewRows" :key="row.symbol" class="paper-review-row">
+        <strong>{{ row.symbol }}</strong> · {{ t('lower') }} {{ row.limit_down || '—' }} · {{ t('upper') }} {{ row.limit_up || '—' }}
+        <p>{{ t('stStatus') }}: {{ statusLabel(row.st) }} · {{ t('suspensionStatus') }}: {{ statusLabel(row.suspended) }}</p>
+        <p v-if="row.status_evidence" class="paper-muted">{{ t('source') }}: {{ row.status_evidence.source }} · {{ row.status_evidence.trading_day }} · {{ formatTime(row.status_evidence.available_at) }}<br>{{ t('evidenceHash') }}: {{ row.status_evidence.evidence_sha256 }}</p>
+        <p v-else class="paper-muted">{{ t('currentStatusMissing') }}</p>
+        <p v-if="row.quote_evidence" class="paper-muted">{{ t('quoteEvidence') }}: {{ row.quote_evidence.source || '—' }} · {{ formatTime(row.quote_evidence.exchange_time) }}<br>{{ t('evidenceHash') }}: {{ row.quote_evidence.evidence_sha256 }}</p>
+        <a-alert v-if="row.blockers.length" type="warning" :message="t('candidateBlocked')" class="paper-alert" />
+        <a-checkbox v-model="row.confirmed" :disabled="row.blockers.length > 0">{{ t('reviewCheck') }}</a-checkbox>
+      </div>
+      <a-form-item :label="t('batchEvidence')"><a-textarea v-model="batchEvidence" :rows="3" :max-length="1000" /></a-form-item>
+    </a-modal>
 
     <a-modal
       :visible="reviewVisible"
@@ -149,6 +188,7 @@ clock: null,
 stopped: false,
       settingsSymbols: 'sz.000001',
 settingsInterval: 5,
+      researchPreferences: { topics: [], follow_current_events: false, custom_topics: '' },
 settingsLoaded: false,
       order: { symbol: 'sz.000001', side: 'buy', quantity: 100, limit_price: null },
 orderId: '',
@@ -159,10 +199,23 @@ review: { symbol: '', trading_day: '', evidence: '', limit_down: null, limit_up:
       activeTab: 'orders',
 reports: [],
 reportsLoading: false,
-reportsError: ''
+reportsError: '',
+      suggestionsLoading: false,
+      batchVisible: false,
+      batchDay: '',
+      reviewRows: [],
+      batchEvidence: '',
+      universeDay: shanghaiDate(Date.now()),
+      universeOffset: 0,
+      universeResult: null,
+      universeLoading: false,
+      universeError: ''
 }
   },
   computed: {
+    batchCanSave () { return this.batchEvidence.trim().length >= 3 && this.reviewRows.some(row => row.confirmed && row.blockers.length === 0) },
+    universeRows () { return this.universeResult ? (this.universeResult.members || []).map(row => ({ ...row, trading_day: this.universeResult.trading_day })) : [] },
+    universeColumns () { return [{ title: this.t('symbol'), dataIndex: 'symbol' }, { title: this.t('name'), dataIndex: 'name' }, { title: this.t('tradingDay'), dataIndex: 'trading_day' }, { title: this.t('suspensionStatus'), dataIndex: 'suspended', scopedSlots: { customRender: 'status' } }] },
     isDarkTheme () { return ['dark', 'realdark'].includes(this.$store.getters.theme) },
     metrics () { return [{ key: 'cash', label: 'cash' }, { key: 'available_cash', label: 'available' }, { key: 'reserved_cash', label: 'reserved' }, { key: 'total_fees', label: 'fees' }] },
     symbols () { return this.state.settings.symbols || ['sz.000001'] },
@@ -203,9 +256,16 @@ reportsError: ''
     quoteFresh (quote) { return quoteIsFresh(quote, this.now) },
     today () { return shanghaiDate(this.now) },
     ruleReady (symbol) { return ruleIsReady((this.state.rules || {})[symbol], this.now) },
-    onTabChange (key) { if (key === 'reports') this.loadReports() },
+    onTabChange (key) { if (key === 'reports') this.loadReports(); if (key === 'universe' && !this.universeResult) this.loadUniverse() },
+    showFeishu () { this.activeTab = 'feishu'; this.$nextTick(() => { const element = this.$refs.feishuSettings; if (element) element.scrollIntoView({ behavior: 'smooth', block: 'start' }) }) },
+    statusLabel (value) { return value == null ? this.t('unknownNeedsReview') : value ? this.t('yes') : this.t('no') },
+    async openBatchReview () { if (this.suggestionsLoading) return; this.suggestionsLoading = true; try { const result = await paperRequest('/rules/suggestions'); this.batchDay = result.trading_day; this.reviewRows = result.rows.map(row => ({ ...row, confirmed: false })); this.batchEvidence = ''; this.batchVisible = true } catch (err) { this.error = this.errorMessage(err) } finally { this.suggestionsLoading = false } },
+    async saveBatchReview () { if (!this.batchCanSave) return; const rules = this.reviewRows.filter(row => row.confirmed && row.blockers.length === 0).map(row => ({ symbol: row.symbol, trading_day: this.batchDay, suspended: false, st: false, limit_up: String(row.limit_up), limit_down: String(row.limit_down), evidence: this.batchEvidence.trim() })); try { await this.mutate('/rules/review-batch', 'post', { confirmed: true, rules }, this.t('saved')); this.batchVisible = false } catch (_) {} },
+    async loadUniverse () { if (this.universeLoading) return; this.universeLoading = true; try { this.universeResult = await paperRequest('/universe?trading_day=' + encodeURIComponent(this.universeDay) + '&limit=100&offset=' + this.universeOffset); this.universeError = '' } catch (err) { this.universeResult = null; this.universeError = this.errorMessage(err) } finally { this.universeLoading = false } },
+    queryUniverse () { this.universeOffset = 0; this.loadUniverse() },
+    pageUniverse (offset) { this.universeOffset = Math.max(0, this.universeOffset + offset); this.loadUniverse() },
     async loadReports () { if (this.reportsLoading || this.stopped) return; this.reportsLoading = true; try { const result = await paperRequest('/daily-reports?limit=30'); if (!this.stopped) { this.reports = result; this.reportsError = '' } } catch (err) { this.reportsError = this.errorMessage(err) } finally { this.reportsLoading = false } },
-    async refresh () { if (this.loading || this.stopped) return; this.loading = true; try { const data = await paperRequest(); if (this.stopped) return; this.now = Date.now(); this.state = { ...emptyState(), ...data }; this.error = ''; this.updatedAt = new Date().toISOString(); if (!this.settingsLoaded) { this.settingsSymbols = this.symbols.join(','); this.settingsInterval = this.state.settings.interval_seconds || 5; this.order.symbol = this.symbols[0]; this.settingsLoaded = true } } catch (err) { this.error = this.errorMessage(err) } finally { this.loading = false } },
+    async refresh () { if (this.loading || this.stopped) return; this.loading = true; try { const data = await paperRequest(); if (this.stopped) return; this.now = Date.now(); this.state = { ...emptyState(), ...data }; this.error = ''; this.updatedAt = new Date().toISOString(); if (!this.settingsLoaded) { this.settingsSymbols = this.symbols.join(','); this.settingsInterval = this.state.settings.interval_seconds || 5; this.researchPreferences = { topics: [], follow_current_events: false, custom_topics: '', ...(this.state.settings.research_preferences || {}) }; this.order.symbol = this.symbols[0]; this.settingsLoaded = true } } catch (err) { this.error = this.errorMessage(err) } finally { this.loading = false } },
     async poll () { if (this.stopped) return; if (!document.hidden) await this.refresh(); if (!this.stopped) this.timer = setTimeout(() => this.poll(), 3000) },
     async mutate (path, method, data, message) { if (this.busy) return; this.busy = true; try { const result = await paperRequest(path, method, data); if (message) this.$message.success(message); await this.refresh(); return result } catch (err) { this.error = this.errorMessage(err); throw err } finally { this.busy = false } },
     async initialize () { try { await this.mutate('/initialize', 'post', { initial_cash: Number(this.capital).toFixed(2) }, this.t('saved')) } catch (_) {} },
@@ -216,7 +276,7 @@ reportsError: ''
     async cancelOrder (id) { try { await this.mutate(`/orders/${id}/cancel`, 'post', {}, this.t('cancelled')) } catch (_) {} },
     openReview (quote) { this.reviewChecked = false; this.review = { symbol: quote.symbol, trading_day: this.today(), evidence: '', limit_down: Number(quote.limit_down), limit_up: Number(quote.limit_up) }; this.reviewVisible = true },
     async saveReview () { if (!this.reviewChecked || !this.review.evidence.trim()) return; try { await this.mutate('/rules/review', 'post', { ...this.review, limit_down: Number(this.review.limit_down).toFixed(2), limit_up: Number(this.review.limit_up).toFixed(2), suspended: false, st: false }, this.t('saved')); this.reviewVisible = false } catch (_) {} },
-    async saveSettings () { try { await this.mutate('/settings', 'put', { symbols: this.settingsSymbols.split(',').map(s => s.trim()).filter(Boolean), interval_seconds: this.settingsInterval }, this.t('saved')) } catch (_) {} },
+    async saveSettings () { try { await this.mutate('/settings', 'put', { symbols: this.settingsSymbols.split(',').map(s => s.trim()).filter(Boolean), interval_seconds: this.settingsInterval, research_preferences: this.researchPreferences }, this.t('saved')) } catch (_) {} },
     async saveBot () { try { await this.mutate('/notifications/config', 'post', { ...this.bot }, this.t('saved')); this.bot = { webhook_url: '', signing_secret: '' } } catch (_) {} },
     confirmDisableBot () { this.$confirm({ title: this.t('disableBot'), content: this.t('disableBotConfirm'), onOk: async () => { try { await this.mutate('/notifications/config', 'post', { webhook_url: '', signing_secret: '' }, this.t('saved')); this.bot = { webhook_url: '', signing_secret: '' } } catch (_) {} } }) },
     async testBot () { try { const result = await this.mutate('/notifications/test', 'post', {}); if (result && result.status === 'sent') this.$message.success(this.t('botSent')); else this.$message.warning(this.t('botFailed')) } catch (_) {} }
@@ -243,6 +303,7 @@ reportsError: ''
 .paper-bot h3 { color: var(--qd-text); }
 .paper-bot p, .paper-bot li { color: var(--qd-text-secondary); }
 .paper-bot { max-width: 720px; padding: 4px; }
+.paper-review-row { padding: 12px 0; border-bottom: 1px solid var(--qd-border); margin-bottom: 12px; overflow-wrap: anywhere; }
 .paper-steps { list-style: none; padding: 0; line-height: 2; }
 small { font-size: 12px; color: var(--qd-text-secondary); }
 @media (max-width: 900px) { .paper-metrics { grid-template-columns: repeat(2, 1fr); } .paper-workspace { grid-template-columns: 1fr; } .paper-heading { flex-wrap: wrap; } .paper-health { text-align: left; } .paper-health button { margin-left: 0; } }

@@ -7,7 +7,8 @@ from pathlib import Path
 import psycopg2
 
 
-MIGRATIONS = ("20261117_ashare_paper.sql", "20261117_ashare_web.sql", "20261117_ashare_operations.sql")
+MIGRATIONS = ("20261117_ashare_paper.sql", "20261117_ashare_web.sql", "20261117_ashare_operations.sql",
+              "20261117_ashare_securities.sql")
 
 def get_database_url():
     """Prefer a dedicated paper database; otherwise use the official PostgreSQL."""

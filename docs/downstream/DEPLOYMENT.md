@@ -82,3 +82,11 @@ The private user service/timer runs at 18:10 Asia/Shanghai daily, with up to 60 
 Feishu remains optional and one-way. The user configures and explicitly tests the Webhook in the UI. Deploying or backing up never sends a test message or claims delivery when no bot is configured.
 
 See [continuous operations](OPERATIONS.md) for heartbeat, storage protection and daily reports.
+
+## Persistent page settings
+
+Mutable settings such as model configuration use a dedicated Docker `settings` volume at `/app/settings/runtime.env`, selected explicitly with `QUANTDINGER_ENV_FILE`. Its directory belongs to UID/GID 10001 with mode 0700; the settings file uses 0600. The application remains non-root. Writes use a same-directory temporary file and atomic replacement, preserving the previous file on failure. Saved model settings reload after container recreation.
+
+Deployment `config.env` remains separate and retains stable identity/encryption roots. Mutable page settings do not replace those roots. Following the upstream format, runtime settings are plaintext: filesystem permissions are not encryption at rest. Treat this volume and its backups as secrets, never commit them, and encrypt off-host copies as described above.
+
+New backups include checksum-verified `settings.tar.gz` and safe restoration. Legacy backups without it remain supported but require model reconfiguration. On the first upgrade, build the new image before initializing its settings volume so Docker copies the application's 10001:10001/0700 directory ownership. Settings requests that failed against the old unwritable `/app/.env` were not persisted and must be entered again after upgrade; do not copy API keys from logs.

@@ -45,6 +45,12 @@ def dedupe_symbol_results(items: Iterable[dict], limit: int) -> list:
         instrument_id = str(item.get("instrument_id") or item.get("instrumentId") or "").strip()
         settle_currency = str(item.get("settle_currency") or item.get("settleCurrency") or "").strip().upper()
         asset_class = str(item.get("asset_class") or "crypto").strip().lower()
+        product_type = str(item.get("product_type") or "crypto").strip().lower()
+        if market == "CNStock":
+            if asset_class in ("", "crypto"):
+                asset_class = "equity"
+            if product_type in ("", "crypto"):
+                product_type = "cnstock"
         key = (market, symbol, exchange_id, market_type, instrument_id)
         if key in seen:
             continue
@@ -58,7 +64,7 @@ def dedupe_symbol_results(items: Iterable[dict], limit: int) -> list:
             "instrument_id": instrument_id,
             "settle_currency": settle_currency,
             "asset_class": asset_class,
-            "product_type": str(item.get("product_type") or "crypto").strip().lower(),
+            "product_type": product_type,
             "api_family": str(item.get("api_family") or market_type or "spot").strip().lower(),
             "underlying_market": str(item.get("underlying_market") or "").strip(),
             "underlying_symbol": str(item.get("underlying_symbol") or "").strip().upper(),

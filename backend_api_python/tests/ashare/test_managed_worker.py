@@ -115,6 +115,35 @@ def test_state_changes_notify_without_using_global_environment_credentials(accou
     assert store.state()["worker"]["state"] == "awaiting_review"
 
 
+def test_new_daily_report_sends_ledger_summary_once_without_retrying_unknown_delivery(account):
+    connection, store, path = account
+    sent = []
+    def notification(text, **credentials):
+        sent.append((text, credentials))
+        return {"status": "failed", "error": "transport_error_delivery_unknown"}
+    worker = ManagedWorker(connection, path, fetcher=lambda *a, **k: [quote(instant())], notifier=notification)
+    worker.process_account(store.tenant_id, now=instant())
+    sent.clear()
+    result = worker.process_account(store.tenant_id, now=instant(hour=8))
+    assert result["daily_reports_created"] == ["2026-11-17"]
+    assert len(sent) == 1
+    text, credentials = sent[0]
+    assert "[模拟交易日报]" in text
+    assert "期末现金：10000.00" in text
+    assert "当日成交：0 笔" in text
+    assert "账本对账：通过" in text
+    assert "收益率：不可用" in text
+    assert "关注列表：sz.000001" in text
+    assert credentials == {"webhook_url": "", "signing_secret": ""}
+    # A second cycle and a new worker instance cannot re-notify a persisted day.
+    assert worker.process_account(store.tenant_id, now=instant(hour=8, second=1))["daily_reports_created"] == []
+    restarted = ManagedWorker(connection, path, fetcher=lambda *a, **k: [quote(instant())], notifier=notification)
+    assert restarted.process_account(store.tenant_id, now=instant(hour=8, second=6))["daily_reports_created"] == []
+    assert len(sent) == 1
+    assert store.state()["rules"] == {}
+    assert store.state()["fills"] == []
+
+
 def test_database_connection_reconnect_uses_capped_backoff(tmp_path):
     from app.ashare.managed_worker import run_forever
     import psycopg2

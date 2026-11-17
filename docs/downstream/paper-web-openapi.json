@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "A-share human paper API",
-    "version": "0.3.0",
+    "version": "0.4.0",
     "description": "Human JWT only; tenant derives from verified user. Real brokerage and Agent writes remain disabled."
   },
   "servers": [
@@ -128,6 +128,32 @@
                     "type": "integer",
                     "minimum": 2,
                     "maximum": 3600
+                  },
+                  "research_preferences": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "topics": {
+                        "type": "array",
+                        "maxItems": 4,
+                        "uniqueItems": true,
+                        "items": {
+                          "enum": [
+                            "ai",
+                            "robotics",
+                            "new_energy",
+                            "semiconductors"
+                          ]
+                        }
+                      },
+                      "follow_current_events": {
+                        "type": "boolean"
+                      },
+                      "custom_topics": {
+                        "type": "string",
+                        "maxLength": 240
+                      }
+                    }
                   }
                 },
                 "required": [
@@ -423,6 +449,197 @@
               "minimum": 1,
               "maximum": 90,
               "default": 30
+            }
+          },
+          {
+            "name": "_t",
+            "in": "query",
+            "required": false,
+            "description": "Ignored cache-busting value appended by the official frontend.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/rules/suggestions": {
+      "get": {
+        "summary": "Read current-day quote and dated security-status suggestions. Unknown fields remain null. Never grants approval.",
+        "responses": {
+          "200": {
+            "description": "Human envelope code=1, data; notifications never expose credentials"
+          },
+          "400": {
+            "description": "Rejected request"
+          },
+          "401": {
+            "description": "Invalid human session"
+          },
+          "403": {
+            "description": "Viewer write denied"
+          },
+          "503": {
+            "description": "Paper database unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "_t",
+            "in": "query",
+            "required": false,
+            "description": "Ignored cache-busting value appended by the official frontend.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/rules/review-batch": {
+      "post": {
+        "summary": "Atomically persist 1..30 explicitly human-confirmed daily reviews. Any rejected row rejects the entire batch.",
+        "responses": {
+          "200": {
+            "description": "Human envelope code=1, data; notifications never expose credentials"
+          },
+          "400": {
+            "description": "Rejected request"
+          },
+          "401": {
+            "description": "Invalid human session"
+          },
+          "403": {
+            "description": "Viewer write denied"
+          },
+          "503": {
+            "description": "Paper database unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "confirmed",
+                  "rules"
+                ],
+                "properties": {
+                  "confirmed": {
+                    "type": "boolean",
+                    "enum": [
+                      true
+                    ]
+                  },
+                  "rules": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 30,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "symbol": {
+                          "type": "string"
+                        },
+                        "trading_day": {
+                          "type": "string",
+                          "format": "date"
+                        },
+                        "suspended": {
+                          "type": "boolean"
+                        },
+                        "st": {
+                          "type": "boolean"
+                        },
+                        "evidence": {
+                          "type": "string"
+                        },
+                        "limit_up": {
+                          "type": "string"
+                        },
+                        "limit_down": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "symbol",
+                        "trading_day",
+                        "suspended",
+                        "st",
+                        "evidence",
+                        "limit_up",
+                        "limit_down"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/universe": {
+      "get": {
+        "summary": "Read an evidence-backed dated universe, not current constituents projected into history. Missing date is unavailable.",
+        "responses": {
+          "200": {
+            "description": "Human envelope code=1, data; notifications never expose credentials"
+          },
+          "400": {
+            "description": "Rejected request"
+          },
+          "401": {
+            "description": "Invalid human session"
+          },
+          "403": {
+            "description": "Viewer write denied"
+          },
+          "503": {
+            "description": "Paper database unavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "trading_day",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 100
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 20000,
+              "default": 0
+            }
+          },
+          {
+            "name": "_t",
+            "in": "query",
+            "required": false,
+            "description": "Ignored cache-busting value appended by the official frontend.",
+            "schema": {
+              "type": "string"
             }
           }
         ]

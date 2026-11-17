@@ -40,6 +40,13 @@ def normalize_asset_row(row: dict[str, Any] | None) -> dict[str, Any] | None:
     result["name"] = _clean(result.get("name")) or result["symbol"]
     result["asset_class"] = _clean(result.get("asset_class")).lower()
     result["product_type"] = _clean(result.get("product_type")).lower()
+    # Legacy stock seed rows inherited the crypto column default. Correct the
+    # research representation without rewriting catalog IDs or product bindings.
+    if result["market"] == "CNStock":
+        if result["asset_class"] in ("", "crypto"):
+            result["asset_class"] = "equity"
+        if result["product_type"] in ("", "crypto"):
+            result["product_type"] = "cnstock"
     result["underlying_market"] = _clean(result.get("underlying_market"))
     result["underlying_symbol"] = _clean(result.get("underlying_symbol")).upper()
     return result

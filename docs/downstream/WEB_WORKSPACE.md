@@ -69,3 +69,15 @@ See [web acceptance](WEB_ACCEPTANCE.md) and [API contract](paper-web-openapi.jso
 Profile → Change Password defaults to **Current password**. Enter the current login password, the new password and its confirmation; SMTP is not required. New passwords require at least 8 characters with uppercase, lowercase and a digit. A successful change invalidates existing sessions and returns to login. Repeated incorrect attempts are rate-limited.
 
 **Email code** remains an alternative and requires configured server SMTP plus a reachable account email. The code is not the login password. Passwordless accounts must verify email before setting a password. Unconfigured email fails clearly before creating an undeliverable code. Never share passwords, email codes or Webhooks in chat or commit them to the repository.
+
+## Historical universe and batch human review
+
+The new **Historical universe** tab queries retrieved dates in `YYYY-MM-DD` format, 100 rows per page. Missing dates remain unavailable; current constituents are never projected into history. Coverage, provenance and acquisition time are determined by the stored observations. BaoStock EOD status is not exchange-certified data or evidence that a fact was known that morning.
+
+**Review watchlist together** in the market card gathers today's quoted price limits and exact-date status evidence. A human must verify and check each selected security, then supply a shared dated review source before saving. The server validates every row before committing the batch in one transaction; one invalid row rejects the entire batch. Reading suggestions writes no approvals. Prior dates are never carried forward; absent current-date status remains unknown and requires manual verification. Missing/corrupt evidence, absent current-date quotes, ST/delisting names and an ineligible dated status block approval.
+
+The page header now offers a **Feishu notifications** shortcut that opens and scrolls to the configuration form. Creating a Feishu custom bot requires the desktop client; the mobile client does not expose that creation entry.
+
+## Research preferences
+
+Select AI, robotics, new energy or semiconductors in **Watchlist**, optionally add other directions and enable current-event recommendations, then save. Preferences are account-scoped. The current panel only stores preferences; news acquisition, topic constituents, automatic stock selection and strategy activation are not implemented by it. Future AI research and optimization proposals require human approval before an approved paper strategy can run automatically; saving these choices does not implement or activate that workflow.
