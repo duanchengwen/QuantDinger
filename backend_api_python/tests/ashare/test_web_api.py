@@ -116,7 +116,7 @@ def test_documented_routes_match_registered_routes():
     spec=json.loads((Path(__file__).parents[3]/"docs/downstream/paper-web-openapi.json").read_text())
     app=Flask(__name__)
     app.register_blueprint(blueprint)
-    actual={(rule.rule.replace("/api/ashare-paper", "").replace("<int:order_id>","{order_id}"),method.lower()) for rule in app.url_map.iter_rules() if rule.rule.startswith("/api/ashare-paper") for method in rule.methods if method not in {"HEAD","OPTIONS"}}
+    actual={(rule.rule.replace("/api/ashare-paper", "").replace("<int:order_id>","{order_id}").replace("<board_code>","{board_code}"),method.lower()) for rule in app.url_map.iter_rules() if rule.rule.startswith("/api/ashare-paper") for method in rule.methods if method not in {"HEAD","OPTIONS"}}
     documented={(path,method) for path,operations in spec["paths"].items() for method in operations}
     assert actual == documented
 

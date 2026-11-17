@@ -16,7 +16,7 @@ Archived bytes are the HTTP client's decoded response body, not TLS or compresse
 
 Results separate provider total, supported Shanghai/Shenzhen A-share count and exclusions. Unsupported Beijing exchange or other securities are not silently treated as tradable. Membership establishes a provider classification, not current ST/suspension status, price bands, liquidity or trading authorization.
 
-Broad preferences such as new energy may map to several concepts. This version requires an explicit board code or exact provider name (both must match when supplied together); it does not merge solar/new-energy vehicle concepts or alter saved user preferences. Versioned preference mapping, UI display, periodic collection and research recommendations require separate integration.
+Broad preferences such as new energy may map to several concepts. This version requires an explicit board code or exact provider name (both must match when supplied together); it does not merge solar/new-energy vehicle concepts or alter saved user preferences. A read-only archive panel is available. Versioned preference mapping, periodic collection and research recommendations require separate integration.
 
 ## Operation and safety
 

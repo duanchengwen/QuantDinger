@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "A-share human paper API",
-    "version": "0.4.0",
+    "version": "0.5.0",
     "description": "Human JWT only; tenant derives from verified user. Real brokerage and Agent writes remain disabled."
   },
   "servers": [
@@ -21,6 +21,215 @@
         "type": "http",
         "scheme": "bearer",
         "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "ThemeSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "board_code",
+          "board_name",
+          "received_at",
+          "source",
+          "source_hash",
+          "member_count",
+          "provider_total",
+          "excluded_count",
+          "membership_semantics",
+          "historical_membership_certified"
+        ],
+        "properties": {
+          "board_code": {
+            "type": "string",
+            "pattern": "^BK[0-9]{4,8}$"
+          },
+          "board_name": {
+            "type": "string"
+          },
+          "received_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "eastmoney"
+            ]
+          },
+          "source_hash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "member_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "provider_total": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "excluded_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "membership_semantics": {
+            "type": "string",
+            "enum": [
+              "current_observation"
+            ]
+          },
+          "historical_membership_certified": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          }
+        }
+      },
+      "ThemeMember": {
+        "type": "object",
+        "required": [
+          "symbol",
+          "name",
+          "provider_code",
+          "provider_market"
+        ],
+        "properties": {
+          "symbol": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "provider_code": {
+            "type": "string"
+          },
+          "provider_market": {
+            "type": "integer",
+            "enum": [
+              0,
+              1
+            ]
+          }
+        }
+      },
+      "ThemeSnapshot": {
+        "type": "object",
+        "description": "Verified current observation or explicit not_observed. No local filesystem path is returned.",
+        "required": [
+          "board_code",
+          "status",
+          "members",
+          "member_count",
+          "membership_semantics",
+          "published_at"
+        ],
+        "properties": {
+          "board_code": {
+            "type": "string",
+            "pattern": "^BK[0-9]{4,8}$"
+          },
+          "board_name": {
+            "type": "string"
+          },
+          "received_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "eastmoney"
+            ]
+          },
+          "source_hash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "member_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "provider_total": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "excluded_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "membership_semantics": {
+            "type": "string",
+            "enum": [
+              "current_observation"
+            ]
+          },
+          "historical_membership_certified": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "not_observed"
+            ]
+          },
+          "members": {
+            "type": "array",
+            "maxItems": 500,
+            "items": {
+              "$ref": "#/components/schemas/ThemeMember"
+            }
+          },
+          "receipt_id": {
+            "type": "string"
+          },
+          "published_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Unknown; never synthesized from retrieval time."
+          },
+          "known_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "excluded_members": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "source_urls": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uri"
+            }
+          },
+          "consistency": {
+            "type": "string",
+            "enum": [
+              "paginated_not_atomic"
+            ]
+          },
+          "auto_approval_eligible": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          }
+        }
       }
     }
   },
@@ -643,6 +852,169 @@
             }
           }
         ]
+      }
+    },
+    "/themes": {
+      "get": {
+        "summary": "List at most twenty latest distinct verified theme observations",
+        "description": "Human JWT including viewer; Agent tokens rejected. Reads existing observations only: no collection, account initialization, approval, or order writes. Unknown and duplicate query parameters are rejected. Missing/corrupt source evidence fails the whole response; no partial verified list. Only current known versions are exposed.",
+        "parameters": [
+          {
+            "name": "_t",
+            "in": "query",
+            "required": false,
+            "description": "Ignored official frontend cache-busting value; at most one occurrence.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Human success envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "code",
+                    "msg",
+                    "data"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "enum": [
+                        1
+                      ]
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "required": [
+                        "themes",
+                        "status"
+                      ],
+                      "properties": {
+                        "themes": {
+                          "type": "array",
+                          "maxItems": 20,
+                          "items": {
+                            "$ref": "#/components/schemas/ThemeSummary"
+                          }
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "observed",
+                            "not_observed"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid board/query or pagination; known_at/date and duplicate parameters are forbidden."
+          },
+          "401": {
+            "description": "Missing or invalid human JWT, including Agent tokens."
+          },
+          "503": {
+            "description": "Database or evidence unavailable; no internal paths or exception details."
+          }
+        }
+      }
+    },
+    "/themes/{board_code}": {
+      "get": {
+        "summary": "Read a verified current theme member page",
+        "description": "Human JWT including viewer; Agent tokens rejected. Reads existing observations only: no collection, account initialization, approval, or order writes. Unknown and duplicate query parameters are rejected. Missing/corrupt source evidence fails the whole response; no partial verified list. Only current known versions are exposed.",
+        "parameters": [
+          {
+            "name": "board_code",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^BK[0-9]{4,8}$"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 100
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000,
+              "default": 0
+            }
+          },
+          {
+            "name": "_t",
+            "in": "query",
+            "required": false,
+            "description": "Ignored official frontend cache-busting value; at most one occurrence.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Human success envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "code",
+                    "msg",
+                    "data"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "enum": [
+                        1
+                      ]
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/ThemeSnapshot"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid board/query or pagination; known_at/date and duplicate parameters are forbidden."
+          },
+          "401": {
+            "description": "Missing or invalid human JWT, including Agent tokens."
+          },
+          "503": {
+            "description": "Database or evidence unavailable; no internal paths or exception details."
+          }
+        }
       }
     }
   }

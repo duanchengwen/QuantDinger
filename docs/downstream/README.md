@@ -53,3 +53,5 @@ Current increment: [acceptance](SECURITIES_ACCEPTANCE.md) · [personal user guid
 Theme data: [current membership and time provenance](THEMES.md).
 
 Latest theme archive result: [acceptance](THEMES_ACCEPTANCE.md).
+
+Latest theme UI result: [read-only archive browser acceptance](THEME_WEB_ACCEPTANCE.md).

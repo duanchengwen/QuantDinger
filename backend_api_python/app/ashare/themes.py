@@ -435,7 +435,34 @@ class ThemeStore:
         known_at = _instant(known_at or _utcnow())
         if type(limit) is not int or not 1 <= limit <= 500 or type(offset) is not int or not 0 <= offset <= 10000:
             raise ThemeError("invalid_theme_page")
-        with self.connection, self.connection.cursor(cursor_factory=RealDictCursor) as cursor:
+        with self.connection:
+            return self._snapshot(board_code, known_at, limit, offset)
+
+    def latest_snapshots(self, known_at=None, limit=20):
+        """All-or-nothing verified summaries of the latest distinct boards."""
+        known_at = _instant(known_at or _utcnow())
+        if type(limit) is not int or not 1 <= limit <= 20:
+            raise ThemeError("invalid_theme_list_limit")
+        with self.connection:
+            with self.connection.cursor(cursor_factory=RealDictCursor) as cursor:
+                cursor.execute("""SELECT id,board_code FROM (
+                    SELECT DISTINCT ON (board_code) id,board_code,received_at
+                    FROM qd_ashare_theme_receipts WHERE received_at<=%s
+                    ORDER BY board_code,received_at DESC,id DESC
+                ) AS latest ORDER BY received_at DESC,board_code LIMIT %s""", (known_at, limit))
+                selected = cursor.fetchall()
+            keys = ("board_code", "board_name", "received_at", "source", "source_hash", "member_count",
+                    "provider_total", "excluded_count", "membership_semantics", "historical_membership_certified")
+            summaries = []
+            for item in selected:
+                snapshot = self._snapshot(item["board_code"], known_at, 1, 0)
+                if snapshot.get("receipt_id") != item["id"]:
+                    raise ThemeError("theme_snapshot_changed")
+                summaries.append({key: snapshot[key] for key in keys})
+        return {"themes": summaries, "status": "observed" if summaries else "not_observed"}
+
+    def _snapshot(self, board_code, known_at, limit, offset):
+        with self.connection.cursor(cursor_factory=RealDictCursor) as cursor:
             cursor.execute("""SELECT * FROM qd_ashare_theme_receipts WHERE board_code=%s AND received_at<=%s
                 ORDER BY received_at DESC,id DESC LIMIT 1""", (board_code, known_at))
             row = cursor.fetchone()

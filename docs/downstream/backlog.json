@@ -46,7 +46,7 @@
     {
       "id": "reliable_theme_membership",
       "status": "partial_real_current_observation",
-      "acceptance": "Real BK0800 人工智能 receipt at 2026-11-17T14:08:51Z: 758 provider members, 730 supported SH/SZ, 28 excluded; 16 raw pages and full DB membership verified. Append-only knowledge-time queries reject pre-receipt history. No historical backfill. Other themes, preference mapping, UI and scheduling remain pending; see THEMES_ACCEPTANCE_CN.md."
+      "acceptance": "Real BK0800 人工智能 receipt at 2026-11-17T14:08:51Z: 758 provider members, 730 supported SH/SZ, 28 excluded; raw pages and DB members verified. Read-only authenticated archive browser added. Other themes, preference mapping, historical coverage and scheduling remain pending; see THEMES_ACCEPTANCE_CN.md and THEME_WEB_ACCEPTANCE_CN.md."
     },
     {
       "id": "scheduled_news_ingestion",
@@ -117,6 +117,11 @@
       "id": "daily_feishu_ledger_summary",
       "status": "accepted_pending_delivery",
       "acceptance": "Newly generated daily reports format actual ledger, positions, fees and reconciliation. No fabricated mark-to-market returns, selection or strategy changes. Delivery is best-effort, no retry on unknown result."
+    },
+    {
+      "id": "theme_archive_browser",
+      "status": "accepted",
+      "acceptance": "Human-authenticated read-only theme list/detail APIs and official paper-page archive panel with provenance, missing-data state, bounded pagination and stale-request guards. No ingestion, order, preference or approval writes; see THEME_WEB_ACCEPTANCE_CN.md."
     }
   ]
 }

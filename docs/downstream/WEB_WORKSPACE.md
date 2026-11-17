@@ -81,3 +81,9 @@ The page header now offers a **Feishu notifications** shortcut that opens and sc
 ## Research preferences
 
 Select AI, robotics, new energy or semiconductors in **Watchlist**, optionally add other directions and enable current-event recommendations, then save. Preferences are account-scoped. The current panel only stores preferences; news acquisition, topic constituents, automatic stock selection and strategy activation are not implemented by it. Future AI research and optimization proposals require human approval before an approved paper strategy can run automatically; saving these choices does not implement or activate that workflow.
+
+## Archived theme members
+
+Open **Theme members** in the A-share paper workspace and select an archived board. The panel shows member securities, provider total, supported code-scope count, exclusions, collection time, source and manifest hash, with 100 rows per page. It reads archives only on first entry, manual refresh, board selection or pagination; it neither fetches providers nor polls theme endpoints.
+
+Missing archives are explicitly unobserved, not an empty real membership universe. Theme membership does not establish trading eligibility; current observations are neither historical constituents nor realtime quotes. Viewing does not change watchlists, research preferences, daily reviews or strategy approvals. APIs require an authenticated human account and omit local evidence file paths.

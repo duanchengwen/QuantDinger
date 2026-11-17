@@ -266,3 +266,163 @@ def test_pg_invalid_capture_cannot_publish_receipt(store,monkeypatch):
 @pytest.mark.parametrize("limit,offset,known_at", [(501,0,None),(True,0,None),(1,-1,None),(1,0,datetime(2026,11,17))])
 def test_pg_query_pagination_and_timezone_limits(store,limit,offset,known_at):
     with pytest.raises(t.ThemeError): store[0].snapshot(BOARD,known_at,limit=limit,offset=offset)
+
+
+@pytest.fixture
+def theme_client(store, dedicated_database, monkeypatch):
+    """HTTP connections point only at the fixture's exclusive database/schema."""
+    import psycopg2
+    from flask import Flask
+    from app.ashare import web_api
+    from app.ashare.schema import MIGRATIONS
+    repository, _ = store
+    connection = repository.connection
+    with connection, connection.cursor() as cursor:
+        cursor.execute("SELECT current_schema()")
+        schema = cursor.fetchone()[0]
+        for migration in MIGRATIONS:
+            cursor.execute((Path(__file__).parents[2] / "migrations" / migration).read_text())
+    original_connect = psycopg2.connect
+    def isolated_connect(*args, **kwargs):
+        kwargs["options"] = kwargs.get("options", "") + " -c search_path=" + schema
+        return original_connect(dedicated_database, **kwargs)
+    monkeypatch.setattr(web_api.psycopg2, "connect", isolated_connect)
+    monkeypatch.setattr(web_api, "get_database_url", lambda: "fixture-connection-only")
+    def verify(token):
+        if token not in {"user", "viewer", "other"}:
+            return None
+        return {"user_id": 1 if token != "other" else 999,
+                "_verified_user_role": "viewer" if token == "viewer" else "user", "_verified_username": token}
+    monkeypatch.setattr("app.utils.auth.verify_token", verify)
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None): return RECEIVED + timedelta(hours=1)
+    monkeypatch.setattr(web_api, "datetime", Clock)
+    app = Flask(__name__)
+    app.register_blueprint(web_api.blueprint)
+    app.config["TESTING"] = True
+    return app.test_client()
+
+
+def theme_get(client, path="/themes", token="user"):
+    headers = {} if token is None else {"Authorization": "Bearer " + token}
+    return client.get("/api/ashare-paper" + path, headers=headers)
+
+
+@pytest.mark.parametrize("path", ["/themes", "/themes/BK1100"])
+@pytest.mark.parametrize("token", [None, "invalid", "qd_agent_not_a_human_jwt"])
+def test_theme_http_requires_human_auth(theme_client, path, token):
+    assert theme_get(theme_client, path, token).status_code == 401
+
+
+def test_theme_http_unknown_observation_is_explicit_without_account_creation(theme_client, store):
+    for path in ["/themes", "/themes/BK1100"]:
+        response = theme_get(theme_client, path + "?_t=1794916800000", token="viewer")
+        assert response.status_code == 200
+        assert response.json["data"]["status"] == "not_observed"
+        assert "evidence_path" not in response.text
+    with store[0].connection, store[0].connection.cursor() as cursor:
+        cursor.execute("SELECT count(*) FROM qd_ashare_accounts")
+        assert cursor.fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("path", ["/themes?limit=1", "/themes?known_at=2099-01-01T00:00:00Z", "/themes?unexpected=1", "/themes?_t=1&_t=2", "/themes/BK1100?known_at=2099-01-01", "/themes/BK1100?trading_day=2026-11-17", "/themes/BK1100?limit=1&limit=2", "/themes/BK1100?offset=1&offset=2", "/themes/BK1100?limit=0", "/themes/BK1100?limit=501", "/themes/BK1100?offset=-1", "/themes/BK1100?offset=10001", "/themes/BK1100?limit=1.0", "/themes/BK1100?limit=+1", "/themes/BK1100?limit=100000000000000000000", "/themes/BK1", "/themes/BK1100?limit=%D9%A1"])
+def test_theme_http_rejects_unknown_duplicate_future_and_invalid_parameters(theme_client, path):
+    response = theme_get(theme_client, path)
+    assert response.status_code == 400 and response.json["data"] is None
+
+
+def test_theme_http_viewer_verified_members_and_path_redaction(theme_client, store, monkeypatch):
+    receipt = ingest(store)
+    monkeypatch.setattr(t, "fetch_theme", lambda *a, **k: pytest.fail("GET must never fetch"))
+    listing = theme_get(theme_client, "/themes?_t=1", token="viewer")
+    assert listing.status_code == 200
+    summary = listing.json["data"]["themes"][0]
+    assert summary == {"board_code": BOARD, "board_name": NAME, "received_at": RECEIVED.isoformat(),
+                       "source": "eastmoney", "source_hash": receipt["source_hash"], "member_count": 104,
+                       "provider_total": 105, "excluded_count": 1, "membership_semantics": "current_observation",
+                       "historical_membership_certified": False}
+    response = theme_get(theme_client, "/themes/BK1100?limit=1&offset=103&_t=2", token="other")
+    assert response.status_code == 200
+    assert response.json["data"]["members"][0]["symbol"] == "sz.300001"
+    assert response.json["data"]["auto_approval_eligible"] is False
+    assert "evidence_path" not in response.text and "manifest.json" not in response.text
+
+
+def test_theme_http_corruption_does_not_publish_partial_or_unverified_members(theme_client, store):
+    receipt = ingest(store)
+    (Path(receipt["evidence_path"]).parent / "page-004.bin").write_bytes(b'corrupt source')
+    for path in ["/themes", "/themes/BK1100?limit=1"]:
+        response = theme_get(theme_client, path)
+        assert response.status_code == 503
+        assert response.json == {"code": 0, "msg": "theme_evidence_unavailable", "data": None}
+        assert receipt["evidence_path"] not in response.text
+
+
+def test_theme_http_readonly_session_blocks_writes_and_preserves_trading_tables(theme_client, store, monkeypatch):
+    from app.ashare.web_store import WebStore
+    repository, _ = store
+    WebStore(repository.connection, "unchanged-fixture").initialize("10000")
+    ingest(store)
+    def fingerprint():
+        result = []
+        with repository.connection, repository.connection.cursor() as cursor:
+            for table in ["accounts", "orders", "fills", "lots", "audit", "web"]:
+                cursor.execute("SELECT row_to_json(r)::text FROM qd_ashare_" + table + " r ORDER BY row_to_json(r)::text")
+                result.append(cursor.fetchall())
+        return result
+    before = fingerprint()
+    assert theme_get(theme_client, "/themes").status_code == 200
+    assert theme_get(theme_client, "/themes/BK1100").status_code == 200
+    original = t.ThemeStore.latest_snapshots
+    readonly = []
+    def prohibited(self, **kwargs):
+        with self.connection.cursor() as cursor:
+            cursor.execute("SHOW transaction_read_only")
+            readonly.append(cursor.fetchone()[0])
+            cursor.execute("SHOW transaction_isolation")
+            readonly.append(cursor.fetchone()[0])
+            cursor.execute("DELETE FROM qd_ashare_accounts")
+        return original(self, **kwargs)
+    monkeypatch.setattr(t.ThemeStore, "latest_snapshots", prohibited)
+    response = theme_get(theme_client, "/themes")
+    assert response.status_code == 503 and response.json["msg"] == "paper_database_unavailable"
+    assert readonly == ["on", "repeatable read"]
+    assert fingerprint() == before
+
+
+@pytest.mark.parametrize("error", [t.ThemeError("private-path-and-secret-must-not-escape"), OSError("/private/token-file")])
+def test_theme_http_error_details_are_redacted(theme_client, monkeypatch, error):
+    def broken(*a, **k): raise error
+    monkeypatch.setattr(t.ThemeStore, "latest_snapshots", broken)
+    response = theme_get(theme_client, "/themes")
+    assert response.status_code == 503 and response.json["data"] is None
+    assert response.json["msg"] == "theme_evidence_unavailable"
+
+
+def test_pg_latest_distinct_boards_cap_and_all_or_nothing_validation(store, monkeypatch):
+    repository, directory = store
+    receipts = {}
+    for index in range(21):
+        code = f"BK{1080 + index}"
+        name = NAME if code == BOARD else f"主题{80 + index}"
+        value = capture()
+        value.update(board_code=code, board_name=name, expected_name=name)
+        for page in value["pages"]:
+            if page["kind"] == "members":
+                page["params"] = t._params("members", page["page"], code)
+        monkeypatch.setattr(t, "fetch_theme", lambda *a, **k: value)
+        monkeypatch.setattr(t, "_utcnow", lambda: RECEIVED + timedelta(minutes=index))
+        receipts[code] = t.ingest_theme(repository.connection, directory, code, name)
+    latest = repository.latest_snapshots(known_at=RECEIVED + timedelta(hours=1))
+    codes = [item["board_code"] for item in latest["themes"]]
+    assert len(codes) == len(set(codes)) == 20 and "BK1080" not in codes
+    # A later observation for one board must replace its summary, not add a row.
+    monkeypatch.setattr(t, "_utcnow", lambda: RECEIVED + timedelta(minutes=30))
+    newer = t.ingest_theme(repository.connection, directory, BOARD, NAME)
+    latest = repository.latest_snapshots(known_at=RECEIVED + timedelta(hours=1))
+    assert len(latest["themes"]) == 20
+    assert latest["themes"][0]["source_hash"] == newer["source_hash"]
+    page = Path(receipts["BK1082"]["evidence_path"]).parent / "page-004.bin"
+    page.write_bytes(b"corrupt after valid first summaries")
+    with pytest.raises(t.ThemeError): repository.latest_snapshots(known_at=RECEIVED + timedelta(hours=1))

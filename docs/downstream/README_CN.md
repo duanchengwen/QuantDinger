@@ -53,3 +53,5 @@ git config branch.ashare-paper.pushRemote origin
 主题数据：[当前成分与时间追溯](THEMES_CN.md)。
 
 主题归档最新结果：[本轮验收](THEMES_ACCEPTANCE_CN.md)。
+
+主题页面最新结果：[只读主题成分页面验收](THEME_WEB_ACCEPTANCE_CN.md)。

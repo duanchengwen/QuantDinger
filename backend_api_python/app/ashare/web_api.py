@@ -89,6 +89,73 @@ def daily_reports(store):
     return list_daily_reports(store.connection, store.tenant_id, store.account_id, limit=limit)
 
 
+class _ThemeReadUnavailable(Exception):
+    """Only theme reads translate evidence errors into a safe 503 response."""
+
+
+def _theme_endpoint(function):
+    authenticated = endpoint()(function)
+
+    @wraps(function)
+    def wrapped(*args, **kwargs):
+        try:
+            return authenticated(*args, **kwargs)
+        except _ThemeReadUnavailable:
+            return jsonify(code=0, msg="theme_evidence_unavailable", data=None), 503
+    return wrapped
+
+
+def _theme_query(allowed):
+    query_fields(allowed)
+    if any(len(request.args.getlist(key)) != 1 for key in request.args):
+        raise ValueError("duplicate_query_fields")
+    result = {}
+    for key, default, minimum, maximum in (("limit", "100", 1, 500), ("offset", "0", 0, 10000)):
+        if key not in allowed:
+            continue
+        raw = request.args.get(key, default)
+        if not raw.isascii() or not raw.isdecimal() or len(raw) > 5:
+            raise ValueError("invalid_theme_pagination")
+        value = int(raw)
+        if not minimum <= value <= maximum:
+            raise ValueError("invalid_theme_pagination")
+        result[key] = value
+    return result
+
+
+def _theme_read(store, operation):
+    from app.ashare.themes import ThemeError
+    # This connection is fresh and this policy applies only to these two reads.
+    store.connection.set_session(readonly=True, isolation_level="REPEATABLE READ")
+    try:
+        return operation()
+    except (ThemeError, OSError):
+        # Neither filesystem paths nor provider exception details leave the API.
+        raise _ThemeReadUnavailable() from None
+
+
+@blueprint.get("/themes")
+@_theme_endpoint
+def themes(store):
+    from app.ashare.themes import ThemeStore
+    _theme_query(set())
+    now = datetime.now(timezone.utc)
+    return _theme_read(store, lambda: ThemeStore(store.connection).latest_snapshots(known_at=now))
+
+
+@blueprint.get("/themes/<board_code>")
+@_theme_endpoint
+def theme_snapshot(store, board_code):
+    from app.ashare.themes import BOARD_CODE, ThemeStore
+    pagination = _theme_query({"limit", "offset"})
+    if not BOARD_CODE.fullmatch(board_code):
+        raise ValueError("invalid_board_code")
+    now = datetime.now(timezone.utc)
+    result = _theme_read(store, lambda: ThemeStore(store.connection).snapshot(board_code, known_at=now, **pagination))
+    result.pop("evidence_path", None)
+    return result
+
+
 @blueprint.post("/initialize")
 @endpoint(write=True)
 def initialize(store):

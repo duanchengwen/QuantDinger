@@ -114,6 +114,44 @@
           </a-table>
           <a-button :disabled="universeOffset === 0 || universeLoading" @click="pageUniverse(-100)">{{ t('previous') }}</a-button> <a-button :disabled="universeRows.length < 100 || universeLoading" @click="pageUniverse(100)">{{ t('next') }}</a-button>
         </a-tab-pane>
+        <a-tab-pane key="themes" :tab="t('themeMembers')">
+          <p class="paper-muted">{{ t('themeHelp') }}</p>
+          <div class="paper-theme-controls">
+            <a-select
+              :value="themeView.selectedBoard || undefined"
+              :placeholder="t('themeSelect')"
+              :disabled="themeView.catalogLoading || !themeView.themes.length"
+              :aria-label="t('themeSelect')"
+              @change="selectTheme">
+              <a-select-option v-for="theme in themeView.themes" :key="theme.board_code" :value="theme.board_code">{{ theme.board_name }} · {{ theme.board_code }}</a-select-option>
+            </a-select>
+            <a-button :loading="themeView.catalogLoading" @click="refreshThemes">{{ t('themeRefresh') }}</a-button>
+          </div>
+          <a-alert v-if="themeView.catalogError || themeView.snapshotError" type="error" show-icon :message="themeView.catalogError || themeView.snapshotError" class="paper-alert" />
+          <a-alert v-else-if="themeView.catalogStatus === 'not_observed' || (themeView.snapshot && themeView.snapshot.status === 'not_observed')" type="warning" show-icon :message="t('themeNotObserved')" class="paper-alert" />
+          <section v-if="themeView.snapshot && themeView.snapshot.status === 'observed'" class="paper-theme-evidence">
+            <h3>{{ themeView.snapshot.board_name }} · {{ themeView.snapshot.board_code }} <a-tag>{{ t('themeArchived') }}</a-tag></h3>
+            <p>{{ t('received') }}: {{ formatTime(themeView.snapshot.received_at) }}</p>
+            <p>{{ t('themeCounts', { supported: themeView.snapshot.member_count, provider: themeView.snapshot.provider_total, excluded: themeView.snapshot.excluded_count }) }}</p>
+            <p>{{ t('source') }}: {{ themeView.snapshot.source }}<br>{{ t('evidenceHash') }}: <code>{{ themeView.snapshot.source_hash }}</code></p>
+          </section>
+          <a-table
+            v-if="themeView.snapshot && themeView.snapshot.status === 'observed'"
+            :columns="themeColumns"
+            :data-source="themeRows"
+            row-key="symbol"
+            size="small"
+            :pagination="false"
+            :loading="themeView.snapshotLoading">
+            <template slot="emptyText">{{ t('themeEmptyPage') }}</template>
+          </a-table>
+          <p v-if="themeView.snapshotLoading" class="paper-muted" role="status">{{ t('themeLoading') }}</p>
+          <div v-if="themeView.snapshot && themeView.snapshot.status === 'observed'" class="paper-theme-pagination">
+            <span>{{ t('themePageRange', themeRange) }}</span>
+            <a-button :disabled="themeView.offset === 0 || themeView.snapshotLoading || themeView.catalogLoading" @click="pageTheme(-1)">{{ t('previous') }}</a-button>
+            <a-button :disabled="!themeNext || themeView.snapshotLoading || themeView.catalogLoading" @click="pageTheme(1)">{{ t('next') }}</a-button>
+          </div>
+        </a-tab-pane>
         <a-tab-pane key="settings" :tab="t('settings')">
           <h3>{{ t('researchPreferences') }}</h3>
           <p class="paper-muted">{{ t('researchPreferencesHelp') }}</p>
@@ -170,6 +208,7 @@
 <script>
 import { paperRequest } from '@/api/asharePaper'
 import { ageSeconds, quoteIsFresh, shanghaiDate, ruleIsReady, roleIsViewer } from './state.mjs'
+import { createThemeState, createThemeBrowser, themeMembers, themeHasNext, themePageRange } from './theme-state.mjs'
 
 const emptyState = () => ({ account: null, quotes: [], orders: [], positions: [], fills: [], rules: {}, settings: {}, worker: {}, notifications: {} })
 export default {
@@ -209,10 +248,16 @@ reportsError: '',
       universeOffset: 0,
       universeResult: null,
       universeLoading: false,
-      universeError: ''
+      universeError: '',
+      themeView: createThemeState(),
+      themeController: null
 }
   },
   computed: {
+    themeRows () { return themeMembers(this.themeView) },
+    themeNext () { return themeHasNext(this.themeView) },
+    themeRange () { return themePageRange(this.themeView) },
+    themeColumns () { return [{ title: this.t('symbol'), dataIndex: 'symbol' }, { title: this.t('name'), dataIndex: 'name' }] },
     batchCanSave () { return this.batchEvidence.trim().length >= 3 && this.reviewRows.some(row => row.confirmed && row.blockers.length === 0) },
     universeRows () { return this.universeResult ? (this.universeResult.members || []).map(row => ({ ...row, trading_day: this.universeResult.trading_day })) : [] },
     universeColumns () { return [{ title: this.t('symbol'), dataIndex: 'symbol' }, { title: this.t('name'), dataIndex: 'name' }, { title: this.t('tradingDay'), dataIndex: 'trading_day' }, { title: this.t('suspensionStatus'), dataIndex: 'suspended', scopedSlots: { customRender: 'status' } }] },
@@ -244,8 +289,9 @@ reportsError: '',
 },
     fillColumns () { return this.columns(['order_id', 'symbol', 'side', 'quantity', 'price', 'fee', 'exchange_time']) }
   },
+  created () { this.themeController = createThemeBrowser(this.themeView, paperRequest, error => this.themeErrorMessage(error)) },
   mounted () { this.clock = setInterval(() => { this.now = Date.now() }, 1000); this.poll() },
-  beforeDestroy () { this.stopped = true; clearTimeout(this.timer); clearInterval(this.clock) },
+  beforeDestroy () { this.themeController.dispose(); this.stopped = true; clearTimeout(this.timer); clearInterval(this.clock) },
   methods: {
     t (key, values) { return this.$t('ashare.' + key, values) },
     errorMessage (err) { const message = (err.response && err.response.data && err.response.data.msg) || err.message || this.t('error'); const keys = { auth_service_unavailable: 'service', paper_database_unavailable: 'service', paper_database_not_configured: 'service', paper_worker_stale: 'worker', paper_worker_not_healthy: 'worker', outside_continuous_auction: 'session', not_trading_day: 'session', fresh_quote_required: 'quote', 'stale quote': 'quote', 'insufficient available cash': 'cash', 'insufficient T+1 available shares': 'shares' }; return keys[message] ? this.t('error.' + keys[message]) : message },
@@ -256,7 +302,11 @@ reportsError: '',
     quoteFresh (quote) { return quoteIsFresh(quote, this.now) },
     today () { return shanghaiDate(this.now) },
     ruleReady (symbol) { return ruleIsReady((this.state.rules || {})[symbol], this.now) },
-    onTabChange (key) { if (key === 'reports') this.loadReports(); if (key === 'universe' && !this.universeResult) this.loadUniverse() },
+    onTabChange (key) { if (key === 'reports') this.loadReports(); if (key === 'universe' && !this.universeResult) this.loadUniverse(); if (key === 'themes') this.themeController.ensureLoaded() },
+    themeErrorMessage (error) { const response = error.response || {}; const message = (response.data && response.data.msg) || error.message || ''; if (response.status === 401) return this.t('themeSessionError'); if (/evidence|hash_mismatch/.test(message)) return this.t('themeEvidenceError'); if (response.status === 503 || /database_unavailable|database_not_configured|auth_service_unavailable/.test(message)) return this.t('error.service'); return this.t('themeLoadFailed') },
+    refreshThemes () { return this.themeController.refresh() },
+    selectTheme (board) { return this.themeController.select(board) },
+    pageTheme (direction) { return this.themeController.page(direction) },
     showFeishu () { this.activeTab = 'feishu'; this.$nextTick(() => { const element = this.$refs.feishuSettings; if (element) element.scrollIntoView({ behavior: 'smooth', block: 'start' }) }) },
     statusLabel (value) { return value == null ? this.t('unknownNeedsReview') : value ? this.t('yes') : this.t('no') },
     async openBatchReview () { if (this.suggestionsLoading) return; this.suggestionsLoading = true; try { const result = await paperRequest('/rules/suggestions'); this.batchDay = result.trading_day; this.reviewRows = result.rows.map(row => ({ ...row, confirmed: false })); this.batchEvidence = ''; this.batchVisible = true } catch (err) { this.error = this.errorMessage(err) } finally { this.suggestionsLoading = false } },
@@ -304,6 +354,12 @@ reportsError: '',
 .paper-bot p, .paper-bot li { color: var(--qd-text-secondary); }
 .paper-bot { max-width: 720px; padding: 4px; }
 .paper-review-row { padding: 12px 0; border-bottom: 1px solid var(--qd-border); margin-bottom: 12px; overflow-wrap: anywhere; }
+.paper-theme-controls, .paper-theme-pagination { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 0 0 16px; }
+.paper-theme-controls .ant-select { min-width: 240px; max-width: 100%; }
+.paper-theme-evidence { margin: 16px 0; overflow-wrap: anywhere; }
+.paper-theme-evidence h3 { color: var(--qd-text); }
+.paper-theme-evidence p, .paper-theme-pagination { color: var(--qd-text-secondary); }
+.paper-theme-pagination { margin-top: 16px; }
 .paper-steps { list-style: none; padding: 0; line-height: 2; }
 small { font-size: 12px; color: var(--qd-text-secondary); }
 @media (max-width: 900px) { .paper-metrics { grid-template-columns: repeat(2, 1fr); } .paper-workspace { grid-template-columns: 1fr; } .paper-heading { flex-wrap: wrap; } .paper-health { text-align: left; } .paper-health button { margin-left: 0; } }
