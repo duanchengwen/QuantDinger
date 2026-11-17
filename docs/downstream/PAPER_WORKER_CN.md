@@ -2,7 +2,7 @@
 
 [English](PAPER_WORKER.md)
 
-这是 Fork 中首个可运行的 A 股纵向闭环：真实腾讯网页行情 → 已配置示例策略/人工限价单 → PostgreSQL 虚拟现金与股份 → 日报/可选飞书通知。它使用独立进程 `python -m app.ashare`，不启动官方完整服务栈。当前未接入官方前端的交易按钮、Strategy V2 部署和 Kafka 分发；官方原有 signal 虚拟账户与新账本分开，不能混作同一账户。
+这是最初的独立命令行闭环指南。后续已增加[官方页面和托管 worker](WEB_WORKSPACE_CN.md)，页面用户请使用新指南。这里的 `python -m app.ashare` 仍支持文件配置方式；任意 Strategy V2 部署及 Kafka 分发尚未接入。官方原有 signal 虚拟账户与新账本分开，不能混作同一账户。
 
 ## 安装与初始化
 

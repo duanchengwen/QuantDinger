@@ -18,14 +18,14 @@ import requests
 _WEBHOOK = re.compile(r"https://open\.feishu\.cn/open-apis/bot/v2/hook/[A-Za-z0-9-]{1,160}\Z")
 
 
-def notify_text(text: str) -> dict:
+def notify_text(text: str, *, webhook_url: str | None = None, signing_secret: str | None = None) -> dict:
     """Send a paper-labelled text message; secrets never appear in return values.
 
     Configuration is process-local FEISHU_WEBHOOK_URL and optional
     FEISHU_SIGNING_SECRET. No configuration means disabled. A timeout does not
     prove non-delivery; callers must not retry the same event automatically.
     """
-    webhook = os.environ.get("FEISHU_WEBHOOK_URL", "").strip()
+    webhook = (os.environ.get("FEISHU_WEBHOOK_URL", "") if webhook_url is None else webhook_url).strip()
     if not webhook:
         return {"status": "disabled"}
     if not _WEBHOOK.fullmatch(webhook):
@@ -33,7 +33,7 @@ def notify_text(text: str) -> dict:
     if not isinstance(text, str) or not text.strip():
         return {"status": "failed", "error": "invalid_message"}
     payload = {"msg_type": "text", "content": {"text": "[模拟交易 / PAPER]\n" + text}}
-    secret = os.environ.get("FEISHU_SIGNING_SECRET", "")
+    secret = os.environ.get("FEISHU_SIGNING_SECRET", "") if signing_secret is None else signing_secret
     if secret:
         timestamp = str(int(time.time()))
         signing_key = (timestamp + "\n" + secret).encode("utf-8")

@@ -5,7 +5,7 @@
   "upstream_base_commit": "79caf19b056e4bf04338e3d87c7d70fe2b4a932d",
   "upstream_version": "5.6.1",
   "development_branch": "ashare-paper",
-  "status": "paper_worker_mvp",
+  "status": "official_ui_paper_mvp",
   "live_trading_authorized": false,
   "ai_auto_promotion_authorized": false
 }

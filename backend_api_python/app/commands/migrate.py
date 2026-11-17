@@ -8,6 +8,8 @@ def main() -> None:
     from app.utils.db import init_database
 
     init_database(strict_migrations=True)
+    from app.ashare.schema import migrate as migrate_paper
+    migrate_paper()
     print("[migration] database bootstrap finished", flush=True)
 
 

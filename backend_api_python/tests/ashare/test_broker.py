@@ -42,6 +42,16 @@ def test_cash_reservation_and_cancel_are_persistent(broker):
     assert restarted.snapshot()["account"]["available_cash"] == Decimal("10000")
 
 
+def test_prior_day_orders_expire_without_market_quotes(broker):
+    order = place(broker)
+    assert broker.expire_day_orders(date(2026, 11, 17)) == []
+    expired = broker.expire_day_orders(date(2026, 11, 18))
+    assert [o["id"] for o in expired] == [order["id"]]
+    assert expired[0]["status"] == "expired"
+    assert broker.snapshot()["account"]["available_cash"] == Decimal("10000")
+    assert broker.expire_day_orders(date(2026, 11, 18)) == []
+
+
 def quote(day=17, second=1, size=100):
     return {
         "symbol": "sz.000001", "exchange_time": instant(day, second).isoformat(),

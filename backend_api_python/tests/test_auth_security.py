@@ -251,6 +251,9 @@ def test_password_reset_invalidates_existing_token(monkeypatch):
                 if "token_version = coalesce(token_version, 1) + 1" in normalized:
                     state["token_version"] = (state["token_version"] or 1) + 1
                 return
+            if "from qd_user_client_sessions" in normalized:
+                self.result = {"token_version": 1}
+                return
             if "select username, role, status, token_version" in normalized:
                 self.result = dict(state)
                 return

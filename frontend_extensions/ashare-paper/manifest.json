@@ -1,0 +1,9 @@
+{
+  "upstream": "https://github.com/OpenByteInc/QuantDinger-Vue.git",
+  "commit": "2ccc70b208141b3898060c4888853f83111ecfd8",
+  "upstream_version": "5.7.1",
+  "route": "/ashare-paper",
+  "api_prefix": "/api/ashare-paper",
+  "license": "UPSTREAM_LICENSE.txt",
+  "purpose": "Non-commercial research and paper-trading evaluation"
+}

@@ -1,0 +1,398 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "A-share human paper API",
+    "version": "0.2.0",
+    "description": "Human JWT only; tenant derives from verified user. Real brokerage and Agent writes remain disabled."
+  },
+  "servers": [
+    {
+      "url": "/api/ashare-paper"
+    }
+  ],
+  "security": [
+    {
+      "HumanJWT": []
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "HumanJWT": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    }
+  },
+  "paths": {
+    "/state": {
+      "get": {
+        "summary": "/state",
+        "responses": {
+          "200": {
+            "description": "Human envelope code=1, data; notifications never expose credentials"
+          },
+          "400": {
+            "description": "Rejected request"
+          },
+          "401": {
+            "description": "Invalid human session"
+          },
+          "403": {
+            "description": "Viewer write denied"
+          },
+          "503": {
+            "description": "Paper database unavailable"
+          }
+        }
+      }
+    },
+    "/initialize": {
+      "post": {
+        "summary": "/initialize",
+        "responses": {
+          "200": {
+            "description": "Human envelope code=1, data; notifications never expose credentials"
+          },
+          "400": {
+            "description": "Rejected request"
+          },
+          "401": {
+            "description": "Invalid human session"
+          },
+          "403": {
+            "description": "Viewer write denied"
+          },
+          "503": {
+            "description": "Paper database unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "initial_cash": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "initial_cash"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/settings": {
+      "put": {
+        "summary": "/settings",
+        "responses": {
+          "200": {
+            "description": "Human envelope code=1, data; notifications never expose credentials"
+          },
+          "400": {
+            "description": "Rejected request"
+          },
+          "401": {
+            "description": "Invalid human session"
+          },
+          "403": {
+            "description": "Viewer write denied"
+          },
+          "503": {
+            "description": "Paper database unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "symbols": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "maxItems": 30
+                  },
+                  "interval_seconds": {
+                    "type": "integer",
+                    "minimum": 2,
+                    "maximum": 3600
+                  }
+                },
+                "required": [
+                  "symbols",
+                  "interval_seconds"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orders": {
+      "post": {
+        "summary": "/orders",
+        "responses": {
+          "200": {
+            "description": "Human envelope code=1, data; notifications never expose credentials"
+          },
+          "400": {
+            "description": "Rejected request"
+          },
+          "401": {
+            "description": "Invalid human session"
+          },
+          "403": {
+            "description": "Viewer write denied"
+          },
+          "503": {
+            "description": "Paper database unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "client_order_id": {
+                    "type": "string"
+                  },
+                  "symbol": {
+                    "type": "string"
+                  },
+                  "side": {
+                    "enum": [
+                      "buy",
+                      "sell"
+                    ]
+                  },
+                  "quantity": {
+                    "type": "integer",
+                    "multipleOf": 100,
+                    "minimum": 100
+                  },
+                  "limit_price": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "client_order_id",
+                  "symbol",
+                  "side",
+                  "quantity",
+                  "limit_price"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orders/{order_id}/cancel": {
+      "post": {
+        "summary": "/orders/{order_id}/cancel",
+        "responses": {
+          "200": {
+            "description": "Human envelope code=1, data; notifications never expose credentials"
+          },
+          "400": {
+            "description": "Rejected request"
+          },
+          "401": {
+            "description": "Invalid human session"
+          },
+          "403": {
+            "description": "Viewer write denied"
+          },
+          "503": {
+            "description": "Paper database unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {},
+                "required": []
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
+      }
+    },
+    "/rules/review": {
+      "post": {
+        "summary": "/rules/review",
+        "responses": {
+          "200": {
+            "description": "Human envelope code=1, data; notifications never expose credentials"
+          },
+          "400": {
+            "description": "Rejected request"
+          },
+          "401": {
+            "description": "Invalid human session"
+          },
+          "403": {
+            "description": "Viewer write denied"
+          },
+          "503": {
+            "description": "Paper database unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "symbol": {
+                    "type": "string"
+                  },
+                  "trading_day": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "suspended": {
+                    "type": "boolean"
+                  },
+                  "st": {
+                    "type": "boolean"
+                  },
+                  "evidence": {
+                    "type": "string"
+                  },
+                  "limit_up": {
+                    "type": "string"
+                  },
+                  "limit_down": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "symbol",
+                  "trading_day",
+                  "suspended",
+                  "st",
+                  "evidence",
+                  "limit_up",
+                  "limit_down"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/notifications/config": {
+      "post": {
+        "summary": "/notifications/config",
+        "responses": {
+          "200": {
+            "description": "Human envelope code=1, data; notifications never expose credentials"
+          },
+          "400": {
+            "description": "Rejected request"
+          },
+          "401": {
+            "description": "Invalid human session"
+          },
+          "403": {
+            "description": "Viewer write denied"
+          },
+          "503": {
+            "description": "Paper database unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "webhook_url": {
+                    "type": "string",
+                    "writeOnly": true
+                  },
+                  "signing_secret": {
+                    "type": "string",
+                    "writeOnly": true
+                  }
+                },
+                "required": [
+                  "webhook_url"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/notifications/test": {
+      "post": {
+        "summary": "/notifications/test",
+        "responses": {
+          "200": {
+            "description": "Human envelope code=1, data; notifications never expose credentials"
+          },
+          "400": {
+            "description": "Rejected request"
+          },
+          "401": {
+            "description": "Invalid human session"
+          },
+          "403": {
+            "description": "Viewer write denied"
+          },
+          "503": {
+            "description": "Paper database unavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {},
+                "required": []
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

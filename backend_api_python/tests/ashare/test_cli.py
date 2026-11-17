@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 import uuid
 from pathlib import Path
 
@@ -45,7 +46,17 @@ def test_only_one_worker_can_own_account_and_disconnect_releases():
         with pytest.raises(ValueError, match="already owns"):
             claim_worker(second, config)
         first.close()
-        claim_worker(second, config)
+        # Socket close is asynchronous at the server: assert eventual release,
+        # not that PostgreSQL has already processed Terminate on the next call.
+        deadline = time.monotonic() + 2
+        while True:
+            try:
+                claim_worker(second, config)
+                break
+            except ValueError:
+                if time.monotonic() >= deadline:
+                    raise
+                time.sleep(0.01)
     finally:
         first.close()
         second.close()

@@ -4,6 +4,12 @@ import json
 import pytest
 
 
+def test_explicit_disabled_tenant_does_not_use_global_webhook(monkeypatch):
+    from app.ashare.notifications import notify_text
+    monkeypatch.setenv("FEISHU_WEBHOOK_URL", "https://open.feishu.cn/open-apis/bot/v2/hook/global-secret")
+    assert notify_text("local account", webhook_url="", signing_secret="") == {"status": "disabled"}
+
+
 @pytest.fixture(autouse=True)
 def clean_configuration(monkeypatch):
     monkeypatch.delenv("FEISHU_WEBHOOK_URL", raising=False)

@@ -2,7 +2,7 @@
 
 [简体中文](README_CN.md)
 
-The development fork is https://github.com/duanchengwen/QuantDinger and the upstream is https://github.com/OpenByteInc/QuantDinger. See [baseline.json](baseline.json) for the pinned starting revision. The first independent paper worker is implemented; see its [run guide](PAPER_WORKER.md) for scope. The following maintenance requirements do not imply that all product integration and acceptance work is complete.
+The development fork is https://github.com/duanchengwen/QuantDinger and the upstream is https://github.com/OpenByteInc/QuantDinger. See [baseline.json](baseline.json) for the pinned starting revision. The official UI and independent paper worker are integrated; see the [web run guide](WEB_WORKSPACE.md) for scope. The following maintenance requirements do not imply that all product integration and acceptance work is complete.
 
 ## Branches and remotes
 

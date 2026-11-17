@@ -144,6 +144,19 @@ class PaperBroker:
                 raise ValueError("unknown order")
             return self._release(cursor, order, "cancelled") if order["status"] in ("open", "partial") else dict(order)
 
+    def expire_day_orders(self, trading_day: date):
+        """Release prior-day reservations without requiring a fresh market quote."""
+        if type(trading_day) is not date:
+            raise ValueError("trading_day must be a date")
+        with self.connection, self._cursor() as cursor:
+            self._account(cursor)
+            cursor.execute(
+                "SELECT * FROM qd_ashare_orders WHERE tenant_id=%s AND account_id=%s "
+                "AND status IN ('open','partial') AND trading_day<%s ORDER BY id",
+                (*self.key, trading_day),
+            )
+            return [self._release(cursor, order, "expired") for order in cursor.fetchall()]
+
     def on_quote(self, quote: dict, rules: dict, now: datetime):
         from app.ashare.market import validate_quote
         now = aware(now)

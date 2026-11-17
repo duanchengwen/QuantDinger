@@ -11,3 +11,6 @@ def register_routes(app: Flask):
 
     from app.routes.agent_v1 import register as register_agent_v1
     register_agent_v1(app)
+
+    from app.ashare.web_api import blueprint as ashare_paper
+    app.register_blueprint(ashare_paper)

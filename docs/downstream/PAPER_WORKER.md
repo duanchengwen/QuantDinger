@@ -2,7 +2,7 @@
 
 [简体中文](PAPER_WORKER_CN.md)
 
-This runnable vertical slice connects live Tencent web snapshots, explicitly configured example/manual limit orders, a PostgreSQL cash/share ledger, reports and optional Feishu notices. Run `python -m app.ashare` as an independent process; it does not start the full upstream stack. The upstream UI, Strategy V2 deployments and Kafka dispatch are not integrated with this ledger. Upstream signal accounts remain separate.
+This is the original standalone CLI guide. The subsequent [official UI and managed worker](WEB_WORKSPACE.md) are now available; page users should follow that guide. `python -m app.ashare` remains a file-configured alternative. Arbitrary Strategy V2 deployment and Kafka dispatch integration are still pending. Upstream signal accounts remain separate.
 
 ## Setup
 

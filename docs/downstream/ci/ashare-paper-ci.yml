@@ -44,7 +44,7 @@ jobs:
       - name: Paper, safety and relevant upstream contracts
         run: >-
           python -m pytest -p pytest_timeout tests/ashare tests/test_execution_contract.py
-          tests/test_ai_agent_contract_alignment.py
+          tests/test_ai_agent_contract_alignment.py tests/test_auth_security.py
           -k 'not retired_parameter_tuning_is_not_exposed_or_billable' -q
       - run: python -m app.ashare --help
 
@@ -67,5 +67,6 @@ jobs:
       - run: >-
           python -m pytest -p pytest_timeout tests/ashare/test_market.py
           tests/ashare/test_runtime.py tests/ashare/test_safety.py
-          tests/ashare/test_notifications.py -q
+          tests/ashare/test_notifications.py tests/ashare/test_calendar_rules.py
+          tests/ashare/test_auth_outage.py -q
       - run: python -m app.ashare --help

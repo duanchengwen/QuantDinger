@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-开发仓库为 https://github.com/duanchengwen/QuantDinger ，官方仓库为 https://github.com/OpenByteInc/QuantDinger 。固定起点见 [baseline.json](baseline.json)。首版独立盘中模拟进程已实现，运行方式与范围见 [模拟运行指南](PAPER_WORKER_CN.md)。以下是持续维护要求，不代表全部产品集成和验收已完成。
+开发仓库为 https://github.com/duanchengwen/QuantDinger ，官方仓库为 https://github.com/OpenByteInc/QuantDinger 。固定起点见 [baseline.json](baseline.json)。已接入官方页面和独立模拟进程，运行方式与范围见 [页面运行指南](WEB_WORKSPACE_CN.md)。以下是持续维护要求，不代表全部产品集成和验收已完成。
 
 ## 分支和远程
 

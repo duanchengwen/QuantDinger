@@ -20,6 +20,11 @@ _RECOMMENDED_JWT_SECRET_BYTES = 32
 _jwt_secret_warning_configured = False
 
 
+class AuthBackendUnavailable(RuntimeError):
+    """Authentication state could not be checked; never use cached authorization."""
+
+
+
 def _configure_jwt_secret_warnings() -> None:
     """Validate the signing key and configure the legacy-length warning.
 
@@ -229,9 +234,9 @@ def _get_user_auth_state(user_id: int) -> dict:
             row = cur.fetchone()
             cur.close()
             return row
-    except Exception as e:
-        logger.error(f"_get_user_auth_state failed: {e}")
-        return None
+    except Exception:
+        logger.error("Authentication user-state backend unavailable")
+        raise AuthBackendUnavailable("auth_service_unavailable") from None
 
 
 def _verify_token_version(user_id: int, token_version: int) -> bool:
@@ -274,9 +279,9 @@ def _verify_client_token_version(
             return int(client_token_version) == int(row.get('token_version') or 0)
     except (TypeError, ValueError):
         return False
-    except Exception as e:
-        logger.error(f"_verify_client_token_version failed: {e}")
-        return False
+    except Exception:
+        logger.error("Authentication session-state backend unavailable")
+        raise AuthBackendUnavailable("auth_service_unavailable") from None
 
 
 def get_current_user_id() -> int:
@@ -309,7 +314,10 @@ def login_required(f):
         if not token:
             return jsonify({'code': 401, 'msg': 'Token missing', 'data': None}), 401
         
-        payload = verify_token(token)
+        try:
+            payload = verify_token(token)
+        except AuthBackendUnavailable:
+            return jsonify({'code': 0, 'msg': 'auth_service_unavailable', 'data': None}), 503
         if not payload:
             return jsonify({'code': 401, 'msg': 'Token invalid or expired', 'data': None}), 401
         

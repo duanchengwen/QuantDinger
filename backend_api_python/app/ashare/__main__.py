@@ -53,11 +53,12 @@ def main(argv=None):
         raise ValueError("ASHARE_DATABASE_URL required; use a dedicated paper database")
     with closing(psycopg2.connect(dsn, connect_timeout=10)) as connection:
         if args.command == "migrate":
-            migration = Path(__file__).resolve().parents[2] / "migrations" / "20261117_ashare_paper.sql"
-            # __file__: app/ashare/__main__.py; backend root is parents[2].
+            migration_root = Path(__file__).resolve().parents[2] / "migrations"
+            names = ["20261117_ashare_paper.sql", "20261117_ashare_web.sql"]
             with connection, connection.cursor() as cursor:
-                cursor.execute(migration.read_text(encoding="utf-8"))
-            emit({"status": "migrated", "migration": migration.name})
+                for name in names:
+                    cursor.execute((migration_root / name).read_text(encoding="utf-8"))
+            emit({"status": "migrated", "migrations": names})
             return 0
         broker = PaperBroker(connection, config["tenant_id"], config["account_id"],
                              fee_policy=config.get("fee_policy"))

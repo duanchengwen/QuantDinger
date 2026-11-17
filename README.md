@@ -1,4 +1,4 @@
-> A-share paper-only downstream: [run guide](docs/downstream/PAPER_WORKER.md) · [acceptance report](docs/downstream/ACCEPTANCE.md). Real brokerage and Agent mutations are disabled in this branch. The upstream product overview below is retained; its live features are unavailable here.
+> The official UI now includes an **A-share paper** menu: [web run guide](docs/downstream/WEB_WORKSPACE.md) · [web acceptance](docs/downstream/WEB_ACCEPTANCE.md). Quotes, virtual cash/positions, manual paper orders and Feishu setup are integrated. Real brokerage and Agent mutations remain disabled. The upstream overview below is retained; its live features are unavailable here.
 
 <div align="center">
   <a href="https://github.com/OpenByteInc/QuantDinger">
