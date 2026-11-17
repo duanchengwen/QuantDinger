@@ -45,3 +45,11 @@ Visual review also fixed dark-mode contrast, a browser-clock refresh flicker and
 ## Boundaries
 
 Live brokerage and AI promotion remain prohibited, with read-only Agent Gateway. Calendar coverage currently ends 2026-12-31; daily security status remains human-reviewed. Corporate actions, auctions, STAR/BSE, odd lots and arbitrary Strategy V2 auto-deployment remain unsupported. Web snapshots have no exchange-grade latency or queue-fill guarantee. The local preview is a development/acceptance environment; sustained operation needs the documented service supervision and backups.
+
+## Password-change follow-up (2026-11-17)
+
+The reported `Invalid verification code` exposed an email-only profile flow in a local deployment without SMTP. Sending also created a code before checking mail availability. The profile now defaults to the existing current-password endpoint while retaining email verification as an alternative. Proof payloads stay separate; localized errors distinguish incorrect passwords, invalid codes, missing mail setup and rate limiting. Success clears local session state and returns to login.
+
+The current-password endpoint now uses the same strength policy as email changes, rate-limits failed attempts and records an audit event. Passwordless accounts must verify email; an existing session alone cannot set their initial password. No undeliverable code is created when SMTP is unconfigured. The actual user's password was not changed.
+
+Validation: Python 3.11 regression 179 passed / 1 deselected; Python 3.12 targeted password/auth regression 30 passed; 10 frontend tests, full build, ESLint, Ruff, documentation and repeatable patch application passed. Thirteen new backend tests cover proof validation, tenant identity, passwordless accounts, strength, rate limiting and unavailable mail; existing auth tests cover token invalidation. The browser remains at login; entering and submitting the user's chosen password is a user handoff and is not claimed as completed browser acceptance.

@@ -10,6 +10,7 @@ from io import StringIO
 import re
 from flask import Response, g, jsonify, request
 from app.openapi.blueprint import HumanBlueprint as Blueprint
+from app.services.auth_session import get_client_ip, get_user_agent
 from app.services.user_preferences import (
     change_user_password,
     delete_chart_template as delete_chart_template_service,
@@ -861,6 +862,8 @@ def change_password():
             int(user_id),
             data.get('old_password', ''),
             data.get('new_password', ''),
+            ip_address=get_client_ip(),
+            user_agent=get_user_agent(),
         )
         return jsonify({'code': 1 if ok else 0, 'msg': msg, 'data': None}), status if not ok else 200
     except ValueError as e:

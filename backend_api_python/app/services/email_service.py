@@ -319,6 +319,10 @@ class EmailService:
         Returns:
             (success, message)
         """
+        # Do not create unusable codes when no email transport is configured.
+        if not self.is_configured():
+            return False, 'Email service is not configured'
+
         # Generate code
         success, code_or_msg = self.create_verification_code(email, code_type, ip_address)
         if not success:

@@ -31,11 +31,12 @@ def prepare(target):
         raise SystemExit("Unexpected upstream revision; review and update the pinned overlay first")
     if digest(target / "LICENSE") != digest(OVERLAY / "UPSTREAM_LICENSE.txt"):
         raise SystemExit("Upstream license differs from the reviewed version")
-    patch = str(OVERLAY / "upstream.patch")
-    if subprocess.run(["git", "apply", "--check", patch], cwd=target, capture_output=True, check=False).returncode == 0:
-        run("git", "apply", patch, cwd=target)
-    elif subprocess.run(["git", "apply", "--reverse", "--check", patch], cwd=target, capture_output=True, check=False).returncode != 0:
-        raise SystemExit("Upstream integration points changed; refusing an unsafe patch")
+    for name in ("upstream.patch", "password-profile.patch"):
+        patch = str(OVERLAY / name)
+        if subprocess.run(["git", "apply", "--check", patch], cwd=target, capture_output=True, check=False).returncode == 0:
+            run("git", "apply", patch, cwd=target)
+        elif subprocess.run(["git", "apply", "--reverse", "--check", patch], cwd=target, capture_output=True, check=False).returncode != 0:
+            raise SystemExit(f"Upstream integration points changed; refusing unsafe patch: {name}")
     marker = target / ".ashare-overlay.json"
     previous = json.loads(marker.read_text()) if marker.exists() else {}
     files = {}

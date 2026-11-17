@@ -61,3 +61,9 @@ The page explains custom group-bot creation, Webhook/signing-key entry, saving a
 The worker sends only fills and state changes, accepts no inbound trading commands and does not blindly retry uncertain deliveries. No real Webhook was supplied for acceptance; real delivery awaits the user's explicit test.
 
 See [web acceptance](WEB_ACCEPTANCE.md) and [API contract](paper-web-openapi.json). Live brokerage and AI promotion remain prohibited. This does not automatically connect arbitrary upstream Strategy V2 deployments to the new ledger or claim multi-day natural observation.
+
+## Changing a local account password
+
+Profile → Change Password defaults to **Current password**. Enter the current login password, the new password and its confirmation; SMTP is not required. New passwords require at least 8 characters with uppercase, lowercase and a digit. A successful change invalidates existing sessions and returns to login. Repeated incorrect attempts are rate-limited.
+
+**Email code** remains an alternative and requires configured server SMTP plus a reachable account email. The code is not the login password. Passwordless accounts must verify email before setting a password. Unconfigured email fails clearly before creating an undeliverable code. Never share passwords, email codes or Webhooks in chat or commit them to the repository.

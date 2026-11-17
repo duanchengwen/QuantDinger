@@ -5,6 +5,7 @@ import time
 from typing import Any
 
 from app.services.signal_notifier import SignalNotifier
+from app.services.security_service import get_security_service
 from app.services.user_service import get_user_service
 from app.utils.db import get_db_connection
 from app.utils.logger import get_logger
@@ -188,12 +189,16 @@ def delete_chart_template(user_id: int, template_id: str) -> tuple[bool, str, di
     return True, "Chart template deleted", {"template_id": template_id}
 
 
-def change_user_password(user_id: int, old_password: str, new_password: str) -> tuple[bool, str, int]:
-    """Change or set the current user's password."""
+def change_user_password(user_id: int, old_password: str, new_password: str, *, ip_address: str = "", user_agent: str = "") -> tuple[bool, str, int]:
+    """Change an existing password with fresh proof of the current password."""
+    if not isinstance(old_password, str) or not isinstance(new_password, str):
+        return False, "Invalid password fields", 400
     if not new_password:
         return False, "New password required", 400
-    if len(new_password) < 6:
-        return False, "New password must be at least 6 characters", 400
+    security = get_security_service()
+    valid, message = security.validate_password_strength(new_password)
+    if not valid:
+        return False, message, 400
 
     user_service = get_user_service()
     user = user_service.get_user_by_id(user_id)
@@ -209,12 +214,19 @@ def change_user_password(user_id: int, old_password: str, new_password: str) -> 
     password_hash = row.get("password_hash", "") if row else ""
     has_password = bool(password_hash and password_hash.strip())
     if not has_password:
-        success = user_service.reset_password(user_id, new_password)
-        return (True, "Password set successfully", 200) if success else (False, "Failed to set password", 500)
+        return False, "Email verification required to set initial password", 400
 
     if not old_password:
         return False, "Old password required", 400
+    attempt_key = f"password-change:{user_id}"
+    allowed, _ = security.check_login_allowed(attempt_key, ip_address)
+    if not allowed:
+        return False, "Too many password attempts. Try again later", 429
     success = user_service.change_password(user_id, old_password, new_password)
+    security.record_login_attempt(attempt_key, "account", success, ip_address, user_agent)
+    if success:
+        security.clear_login_attempts(attempt_key, "account")
+        security.log_security_event("password_changed", user_id, ip_address, user_agent)
     return (True, "Password changed successfully", 200) if success else (False, "Old password incorrect", 400)
 
 
