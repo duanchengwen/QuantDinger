@@ -2520,6 +2520,7 @@ class MarketDataCollector:
                 else:
                     raw_news = self._finnhub_client.general_news('general', min_id=0)
                 
+                received_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
                 if raw_news:
                     for item in raw_news[:10]:
                         if not item.get('headline'):
@@ -2532,14 +2533,18 @@ class MarketDataCollector:
                             # Asia/Shanghai) and the evidence layer then reads
                             # that wall clock as UTC, making recent news appear
                             # eight hours in the future.
+                            timestamp = float(item.get('datetime'))
+                            if timestamp <= 0 or isinstance(item.get('datetime'), bool):
+                                raise ValueError("Missing publication timestamp")
                             published_at = datetime.fromtimestamp(
-                                float(item.get('datetime') or 0),
+                                timestamp,
                                 tz=timezone.utc,
                             ).isoformat().replace("+00:00", "Z")
                         except (TypeError, ValueError, OverflowError, OSError):
                             published_at = ""
                         news_list.append({
                             "datetime": published_at,
+                            "received_at": received_at,
                             "headline": item.get('headline', ''),
                             "summary": item.get('summary', '')[:300] if item.get('summary') else '',
                             "source": item.get('source', 'Finnhub'),
@@ -2621,9 +2626,12 @@ class MarketDataCollector:
             )
             
             if response.success and response.results:
+                received_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
                 for result in response.results:
                     news_list.append({
-                        "datetime": result.published_date or datetime.now().strftime('%Y-%m-%d'),
+                        # Receipt time never establishes when a publisher released an item.
+                        "datetime": result.published_date or "",
+                        "received_at": received_at,
                         "headline": result.title,
                         "summary": result.snippet[:200] if result.snippet else '',
                         "source": f"搜索:{result.source}",
@@ -2666,6 +2674,7 @@ class MarketDataCollector:
                     )
                     
                     if response.success and response.results:
+                        received_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
                         for result in response.results:
                             title_lower = result.title.lower()
                             snippet_lower = (result.snippet or "").lower()
@@ -2680,7 +2689,8 @@ class MarketDataCollector:
                             
                             if any(keyword in text for keyword in major_event_keywords):
                                 news_list.append({
-                                    "datetime": result.published_date or datetime.now().strftime('%Y-%m-%d %H:%M'),
+                                    "datetime": result.published_date or "",
+                                    "received_at": received_at,
                                     "headline": result.title,
                                     "summary": result.snippet[:300] if result.snippet else '',
                                     "source": f"全球事件:{result.source}",

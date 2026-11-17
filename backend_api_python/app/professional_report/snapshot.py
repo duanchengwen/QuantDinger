@@ -151,6 +151,7 @@ class _ObservationCollector:
         self.items: list[dict[str, Any]] = []
         self.quality_flags: set[str] = set()
         self.excluded_future_timestamp_items = 0
+        self.excluded_unknown_news_timestamp_items = 0
 
     def add(
         self,
@@ -172,7 +173,15 @@ class _ObservationCollector:
         if value is None or value == "":
             return
         source_name = str(source or "unknown")
-        observed_at = _iso_timestamp(as_of or period_end, self.retrieved_at)
+        if category == "news":
+            # A receipt time cannot establish publication time or news freshness.
+            observed_at = _iso_timestamp(as_of, "unknown")
+            if observed_at == "unknown":
+                self.excluded_unknown_news_timestamp_items += 1
+                self.quality_flags.add("news_publication_time_unknown")
+                return
+        else:
+            observed_at = _iso_timestamp(as_of or period_end, self.retrieved_at)
         observed_datetime = datetime.fromisoformat(observed_at.replace("Z", "+00:00"))
         retrieved_datetime = datetime.fromisoformat(
             self.retrieved_at.replace("Z", "+00:00")
@@ -487,6 +496,7 @@ def build_evidence_snapshot(payload: Mapping[str, Any]) -> dict[str, Any]:
             "failed_items": list(meta.get("failed_items") or []),
             "duration_ms": int(meta.get("duration_ms") or 0),
             "excluded_future_timestamp_items": collector.excluded_future_timestamp_items,
+            "excluded_unknown_news_timestamp_items": collector.excluded_unknown_news_timestamp_items,
         },
     }
 

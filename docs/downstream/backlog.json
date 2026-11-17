@@ -46,12 +46,12 @@
     {
       "id": "reliable_theme_membership",
       "status": "pending",
-      "acceptance": "Dated thematic memberships with publication and knowledge times; no current constituent backfill."
+      "acceptance": "AKShare current-theme adapters identified; one public directory probe returned total554 but only100 rows. Complete bounded pagination and dated evidence still pending. No current constituent backfill; publication time unknown, knowledge time must be receipt time."
     },
     {
       "id": "scheduled_news_ingestion",
-      "status": "pending",
-      "acceptance": "Original reliable news URLs, publication/retrieval times, raw hashes, deduplication, prompt-injection boundaries and availability checks."
+      "status": "partial_timestamp_hardening",
+      "acceptance": "Collector no longer substitutes today for missing publication dates; separate UTC receipt times; report evidence excludes missing/unparseable publication dates with a quality flag. Scheduled original-source ingestion, raw hashes, deduplication and prompt-injection boundary acceptance remain pending."
     },
     {
       "id": "deepseek_research_agent",
