@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_on": "2026-11-17",
+  "updated_on": "2026-11-18",
   "workflow_policy": {
     "execution": "paper_only",
     "new_strategy_activation": "explicit_human_approval",
@@ -46,7 +46,7 @@
     {
       "id": "reliable_theme_membership",
       "status": "partial_real_current_observation",
-      "acceptance": "Real BK0800 人工智能 receipt at 2026-11-17T14:08:51Z: 758 provider members, 730 supported SH/SZ, 28 excluded; raw pages and DB members verified. Read-only authenticated archive browser added. Other themes, preference mapping, historical coverage and scheduling remain pending; see THEMES_ACCEPTANCE_CN.md and THEME_WEB_ACCEPTANCE_CN.md."
+      "acceptance": "Real current receipts: BK0800 人工智能 Nov17 (758 provider / 730 supported / 28 excluded), BK1090 机器人概念 Nov18 (840 / 796 / 44), BK0493 新能源 Nov18 (220 / 215 / 5). All raw pages and DB members verified, readable in the authenticated archive browser. Historical coverage, versioned preference mapping and scheduling remain pending; see THEMES_ACCEPTANCE_CN.md and THEME_WEB_ACCEPTANCE_CN.md."
     },
     {
       "id": "scheduled_news_ingestion",
