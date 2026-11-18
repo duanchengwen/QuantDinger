@@ -18,6 +18,18 @@ export function safeNewsUrl (value) {
   try { const url = new URL(value); return url.protocol === 'https:' && ['www.cninfo.com.cn', 'static.cninfo.com.cn'].includes(url.hostname) && !url.username && !url.password ? url.href : '' } catch (_) { return '' }
 }
 
+export function researchCitations (run, candidate) {
+  if (!run || run.status !== 'completed' || !Array.isArray(candidate.evidence_news_ids)) return []
+  const snapshot = run.input_snapshot && run.input_snapshot.news
+  return [...new Set(candidate.evidence_news_ids)].map(id => {
+    const matches = Array.isArray(snapshot) ? snapshot.filter(item => item && item.id === id) : []
+    const item = matches.length === 1 ? matches[0] : null
+    const verified = item && item.source === 'cninfo' && item.content_kind === 'announcement_title' &&
+      Array.isArray(item.verified_issuer_symbols) && item.verified_issuer_symbols.includes(candidate.symbol)
+    return { id, article: verified ? item : null }
+  })
+}
+
 export function researchCanGenerate (state) {
   return !!state.status && state.status.model_configured === true && !state.status.blocked_reason && !state.loading && !state.error && !state.submitting && !state.runs.some(isPending)
 }

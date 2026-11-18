@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import { createResearchState, createResearchBrowser, researchCanGenerate, safeNewsUrl } from '../src/views/ashare-paper/research-state.mjs'
+import { createResearchState, createResearchBrowser, researchCanGenerate, researchCitations, safeNewsUrl } from '../src/views/ashare-paper/research-state.mjs'
 
 const status = { model_configured: true, blocked_reason: null, execution_allowed: false }
 const run = (id = 'r1', state = 'completed') => ({ id, status: state, candidates: [], risks: [], execution_allowed: false, approval_status: 'not_submitted' })
@@ -234,4 +234,19 @@ test('issuer announcement titles and no-evidence reasons keep their precise mean
   assert.equal(researchReasonKey('model_not_supported'), 'researchModelUnsupported')
   assert.equal(researchReasonKey('news_excerpt_source_mismatch'), 'researchEvidenceUnavailable')
   assert.equal(researchReasonKey('server secret must never appear'), 'researchReasonUnavailable')
+})
+
+test('candidate citations resolve the exact frozen announcement revision and issuer', () => {
+  const old = { id: 'archive-a:1', source: 'cninfo', content_kind: 'announcement_title', title: 'Original revision',
+                verified_issuer_symbols: ['sh.600000'], excerpt: { content_kind: 'announcement_pdf_excerpt', content: 'Frozen excerpt' } }
+  const replacement = { ...old, id: 'archive-b:1', title: 'Later revision' }
+  const wrongIssuer = { ...old, id: 'archive-a:2', verified_issuer_symbols: ['sz.000001'] }
+  const candidate = { symbol: 'sh.600000', evidence_news_ids: [old.id, 'missing', wrongIssuer.id, old.id] }
+  const result = { ...run(), input_snapshot: { news: [replacement, old, wrongIssuer] } }
+  assert.deepEqual(researchCitations(result, candidate), [
+    { id: old.id, article: old }, { id: 'missing', article: null }, { id: wrongIssuer.id, article: null }
+  ])
+  assert.deepEqual(researchCitations({ ...result, status: 'started' }, candidate), [])
+  const duplicate = { ...result, input_snapshot: { news: [old, { ...replacement, id: old.id }] } }
+  assert.deepEqual(researchCitations(duplicate, { ...candidate, evidence_news_ids: [old.id] }), [{ id: old.id, article: null }])
 })

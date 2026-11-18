@@ -56,7 +56,7 @@
     {
       "id": "deepseek_research_agent",
       "status": "accepted_limited_scope",
-      "acceptance": "User configured deepseek-flash; Manual and scheduled real requests completed with one evidence-scoped issuer research candidate each. The first 08:30 scheduled run completed on Nov18 using 1833 provider tokens, with verified input/output hashes and no execution authority. No executable strategy, approval or orders; title evidence only."
+      "acceptance": "User-configured deepseek-flash completed real manual and scheduled title-based requests. The first Nov18 08:30 scheduled run completed with one evidence-scoped issuer candidate and 1833 provider tokens. Candidate citations now display the exact saved announcement revision and any included excerpt. Isolated browser verification passed for genuine title evidence and a controlled excerpt. The first naturally scheduled real result containing an excerpt remains open."
     },
     {
       "id": "recommendations_and_approval",

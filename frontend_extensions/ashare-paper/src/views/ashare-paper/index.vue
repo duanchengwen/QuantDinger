@@ -203,7 +203,27 @@
                     <h4>{{ candidate.symbol }} · {{ candidate.name }}</h4>
                     <p>{{ candidate.rationale }}</p>
                     <p class="paper-muted">{{ researchEvidence(candidate.evidence_scope) }}</p>
-                    <p>{{ t('researchEvidenceIds') }}: {{ (candidate.evidence_news_ids || []).join(', ') || '—' }}</p>
+                    <details v-for="citation in citations(researchView.detail, candidate)" :key="citation.id" class="paper-research-citation">
+                      <summary>{{ citation.article ? citation.article.title : t('researchCitationUnavailable') }}</summary>
+                      <small>{{ t('researchNewsId') }} · <code>{{ citation.id }}</code></small>
+                      <template v-if="citation.article">
+                        <p>
+                          <a v-if="newsUrl(citation.article.source_url)" :href="newsUrl(citation.article.source_url)" target="_blank" rel="noopener noreferrer">{{ t('researchCitationOriginal') }}</a>
+                          <br>{{ t('researchPublished') }} · {{ formatTime(citation.article.published_at) }}
+                          <br>{{ t('received') }} · {{ formatTime(citation.article.received_at) }}
+                        </p>
+                        <small>
+                          {{ t('researchSourceHash') }} · <code>{{ citation.article.source_hash }}</code>
+                          <template v-if="citation.article.pdf_hash"><br>{{ t('researchPdfHash') }} · <code>{{ citation.article.pdf_hash }}</code></template>
+                        </small>
+                        <template v-if="citation.article.excerpt && citation.article.excerpt.content_kind === 'announcement_pdf_excerpt'">
+                          <p><strong>{{ t('researchCitationExcerpt') }}</strong></p>
+                          <p class="paper-research-excerpt">{{ citation.article.excerpt.content }}</p>
+                          <p v-if="citation.article.excerpt.truncated" class="paper-muted">{{ t('researchCitationTruncated') }}</p>
+                          <small>{{ t('researchCitationExcerptHash') }} · <code>{{ citation.article.excerpt.provided_excerpt_sha256 }}</code></small>
+                        </template>
+                      </template>
+                    </details>
                     <strong>{{ t('researchRisks') }}</strong>
                     <ul><li v-for="(risk, index) in candidate.risks" :key="index">{{ risk }}</li></ul>
                     <a-button
@@ -286,7 +306,7 @@
 import { paperRequest } from '@/api/asharePaper'
 import { ageSeconds, quoteIsFresh, shanghaiDate, ruleIsReady, roleIsViewer } from './state.mjs'
 import { createThemeState, createThemeBrowser, themeMembers, themeHasNext, themePageRange } from './theme-state.mjs'
-import { createResearchState, createResearchBrowser, researchCanGenerate, safeNewsUrl, researchEvidenceKey, researchReasonKey } from './research-state.mjs'
+import { createResearchState, createResearchBrowser, researchCanGenerate, safeNewsUrl, researchCitations, researchEvidenceKey, researchReasonKey } from './research-state.mjs'
 
 const emptyState = () => ({ account: null, quotes: [], orders: [], positions: [], fills: [], rules: {}, settings: {}, worker: {}, notifications: {} })
 export default {
@@ -379,6 +399,7 @@ reportsError: '',
   mounted () { document.addEventListener('visibilitychange', this.syncResearchVisibility); this.clock = setInterval(() => { this.now = Date.now() }, 1000); this.poll() },
   beforeDestroy () { document.removeEventListener('visibilitychange', this.syncResearchVisibility); this.researchController.dispose(); this.themeController.dispose(); this.stopped = true; clearTimeout(this.timer); clearInterval(this.clock) },
   methods: {
+    citations: researchCitations,
     startResearchDraft (symbol) {
       const run = this.researchView.detail
       if (this.readOnly || !this.state.account || !this.symbols.includes(symbol) ||
@@ -486,6 +507,9 @@ reportsError: '',
 .paper-research-item p { margin-bottom: 8px; }
 .paper-research-select { width: 100%; margin-bottom: 16px; }
 .paper-research-detail { overflow-wrap: anywhere; }
+.paper-research-citation { border: 1px solid var(--qd-border); border-radius: 6px; padding: 8px 12px; margin-bottom: 10px; }
+.paper-research-citation summary { cursor: pointer; }
+.paper-research-excerpt { white-space: pre-wrap; }
 .paper-research-news, .paper-research-results { min-width: 0; }
 @media (max-width: 900px) { .paper-research-grid { grid-template-columns: 1fr; } }
 .paper-steps { list-style: none; padding: 0; line-height: 2; }

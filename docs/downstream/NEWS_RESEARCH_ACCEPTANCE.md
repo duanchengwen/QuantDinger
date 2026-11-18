@@ -49,3 +49,9 @@ The excerpt worker and frontend deployed at 15:03 China time. All four services 
 The worker reads the latest ingestion receipt after acquiring the shared operations lock. During the 120 seconds after successful ingestion, it leaves the queue pending if the excerpt or its matching journal hash is still unavailable. The next scheduled tick checks again. Eligible titles can be used once the window expires. A mismatch between an existing proof and its excerpt still blocks processing.
 
 Python 3.11 and 3.12 each passed 152 operations tests and 3 subtests, covering the lock, the pending queue, processing with verified excerpts and fallback after the timeout. The natural 18:00 China-time run produced seven announcements and seven verified excerpts. The active systemd units already read the repository scripts. The verification was read-only. The first actual scheduled model result using excerpts remains open. Evidence is `excerpt-window-live-readonly-20261118.json`.
+
+### Candidate citation traceability
+
+Candidate citations use the verified input snapshot for that run and match the exact announcement revision and issuer. The expandable detail shows the original PDF link, publication and receipt times, and source hashes. Any excerpt included in the research is displayed as recorded with its input hash. Later archive revisions leave existing citations intact.
+
+The frontend passed 45 tests, ESLint, and the production build. In an isolated browser, a genuine archived title-only research result displayed its correct revision and link. A controlled excerpt verified text and hash rendering. There were zero model calls. Evidence is `research-citation-browser-20261118.json`.
