@@ -75,6 +75,30 @@ def test_transport_error_never_leaks_secret_url_and_never_retries(monkeypatch):
     assert len(calls) == 1
 
 
+def test_strategy_card_button_is_only_a_navigation_link(monkeypatch):
+    import requests
+    from app.ashare.notifications import notify_strategy_card
+
+    captured = {}
+    class Response:
+        status_code = 200
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def iter_content(self, chunk_size): yield b'{"code":0}'
+    def post(self, url, **kwargs):
+        captured.update(json.loads(kwargs["data"]))
+        return Response()
+    monkeypatch.setattr(requests.Session, "post", post)
+    version = {"id": "a"*32, "config": {"symbol": "sh.600000", "quantity": 100,
+                                          "threshold": "10.00", "limit_price": "10.00", "max_cash": "1020.00"}}
+    link = "https://paper.example.test/#/ashare-paper?strategy_version=" + version["id"]
+    assert notify_strategy_card(version, link, webhook_url="https://open.feishu.cn/open-apis/bot/v2/hook/test-token",
+                                signing_secret="fixture") == {"status": "sent"}
+    assert captured["msg_type"] == "interactive" and captured["sign"]
+    button, = captured["card"]["elements"][1]["actions"]
+    assert button["url"] == link and "value" not in button
+
+
 @pytest.mark.parametrize("status_code,body,expected", [
     (302, b'{"code":0}', "webhook_http_error"),
     (200, b'{"code":19021,"msg":"signature rejected"}', "webhook_rejected"),

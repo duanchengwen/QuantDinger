@@ -237,6 +237,14 @@ def restore(state, source, args):
     content = (source / 'config.env').read_text()
     content = re.sub(r'^ASHARE_FRONTEND_DIST=.*$', lambda _: 'ASHARE_FRONTEND_DIST=' + env_value(dist), content, flags=re.MULTILINE)
     content = re.sub(r'^ASHARE_HTTP_PORT=.*$', lambda _: 'ASHARE_HTTP_PORT=' + env_value(args.port), content, flags=re.MULTILINE)
+    for key, image in (
+        ('ASHARE_APP_IMAGE', getattr(args, 'app_image', None)),
+        ('ASHARE_POSTGRES_IMAGE', getattr(args, 'postgres_image', None)),
+    ):
+        if image is not None:
+            content, count = re.subn(rf'^{key}=.*$', lambda _: key + '=' + env_value(image), content, flags=re.MULTILINE)
+            if count != 1:
+                raise ValueError('Restore source has an unexpected image configuration')
     state.mkdir(parents=True, mode=0o700)
     with operation_lock(state):
         private_write(state / 'config.env', content)
@@ -354,6 +362,8 @@ def main():
     recover.add_argument('--project', required=True)
     recover.add_argument('--frontend-dist', required=True)
     recover.add_argument('--port', type=int, default=8078)
+    recover.add_argument('--app-image', help='Use a preloaded, verified paper application image')
+    recover.add_argument('--postgres-image', help='Use a preloaded, verified PostgreSQL image')
     args = parser.parse_args()
     state = args.state_dir.expanduser().resolve()
     if state == ROOT or ROOT in state.parents:

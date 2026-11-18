@@ -16,12 +16,12 @@
     {
       "id": "historical_dated_universe",
       "status": "partial_real_data",
-      "acceptance": "Actual Nov13 and Nov17 BaoStock receipts each have 5224 supported symbols. Nov16 follow-up login timed out; scheduled job reports failure, retaining successes. Multi-date completeness and stable availability remain open."
+      "acceptance": "Verified real Nov13, Nov16 and Nov17 BaoStock receipts each have 5224 supported symbols. The Nov18 19:10 job recovered the Nov16 gap and refreshed Nov17. The Nov18 reference request timed out and the job remains partial. Broader history and stable availability remain open."
     },
     {
       "id": "daily_security_observations",
       "status": "accepted_limited_scope",
-      "acceptance": "Real Nov13/17 unadjusted EOD status for one watched symbol per date, raw hashes and retrieval times retained. Not full-market ST coverage, exchange certification, intraday authority or next-day approval."
+      "acceptance": "Verified real Nov13/16/17 unadjusted EOD status for one watched symbol per date, with raw hashes and receipt times. Broader and intraday coverage still needs a validated source. Daily approval remains manual."
     },
     {
       "id": "review_assistance",

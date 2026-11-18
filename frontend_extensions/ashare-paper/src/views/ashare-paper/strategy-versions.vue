@@ -121,6 +121,7 @@ export default {
     active: { type: Boolean, required: true },
     canWrite: { type: Boolean, required: true },
     symbols: { type: Array, required: true },
+    preferredId: { type: String, default: '' },
     researchSeed: { type: Object, default: null }
   },
   data () {
@@ -154,6 +155,7 @@ export default {
       immediate: true,
       handler (open) { if (open) this.refresh() }
     },
+    preferredId () { if (this.active) this.refresh() },
     researchSeed: {
       immediate: true,
       handler (seed) {
@@ -174,6 +176,7 @@ export default {
     errorText (error) {
       const keys = {
         strategy_version_hash_mismatch: 'strategyVersionChanged',
+        strategy_version_not_found: 'strategyLinkedVersionUnavailable',
         another_strategy_version_approved: 'strategyAnotherApproved',
         invalid_strategy_state_transition: 'strategyVersionChanged',
         strategy_symbol_not_watched: 'strategySymbolNotWatched',
@@ -185,17 +188,30 @@ export default {
     },
     async refresh () {
       if (this.loading || this.busy) return
+      const preferred = this.preferredId
       this.loading = true
       this.error = ''
+      if (preferred) this.selectedId = ''
       try {
         const { versions } = await paperRequest(versionPath)
+        if (this.preferredId !== preferred) return
         this.versions = versions
-        if (!this.selected) this.selectedId = versions.length ? versions[0].id : ''
+        if (preferred) {
+          const version = await paperRequest(`${versionPath}/${encodeURIComponent(preferred)}`)
+          if (this.preferredId !== preferred) return
+          if (version.id !== preferred) throw new Error('strategy_version_not_found')
+          this.storeResult(version)
+        } else if (!this.selected) {
+          this.selectedId = versions.length ? versions[0].id : ''
+        }
       } catch (error) {
-        this.versions = []
-        this.error = this.errorText(error)
+        if (this.preferredId === preferred) {
+          if (!preferred) this.versions = []
+          this.error = this.errorText(error)
+        }
       } finally {
         this.loading = false
+        if (this.preferredId !== preferred) this.refresh()
       }
     },
     storeResult (version) {

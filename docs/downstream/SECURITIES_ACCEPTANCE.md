@@ -119,3 +119,7 @@ The version detail reads the exact version's order from its account ledger. It s
 Python 3.11 and 3.12 each passed 511 A-share tests. The frontend passed 44 tests, ESLint and the production build. The first natural intraday order after an actual user approval remains open.
 
 In an isolated restoration of a real backup, controlled quotes produced a strategy order whose authenticated history went from open to expired, releasing its reserve. Local deployment switched to `065cad3` at 17:57 China time on November 18. All four services were healthy. Fourteen critical table fingerprints and private model settings were preserved. The production strategy list was empty. Evidence is `strategy-order-upgrade-rehearsal-20261118.json` and `strategy-order-production-deployment-20261118.json`.
+
+## November 18 evening reference sync
+
+The 19:10 China-time job recovered the dated November 16 BaoStock universe with 5,224 supported symbols and one watched security's daily status. It also captured a fresh independent receipt for November 17. Both raw evidence hashes were verified. The November 18 request timed out, so the job remains partial. These observations were received on the evening of November 18. Intraday coverage and daily human review are assessed separately. Evidence is `monitor-20261118-1920.json`.

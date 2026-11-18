@@ -170,6 +170,31 @@ class StrategyVersions:
                     version['funding'] = self._funding(version['config'], account)
             return {'versions': versions}
 
+    def get(self, version_id):
+        if not _matches(VERSION_ID, version_id):
+            raise ValueError('invalid_strategy_version_or_hash')
+        with self.connection, self.connection.cursor(cursor_factory=RealDictCursor) as cursor:
+            version = self._find(cursor, version_id)
+            account = self.broker._account(cursor, lock=False)
+            return {**version, 'funding': self._funding(version['config'], account)}
+
+    def claim_review_notice(self, version_id):
+        with self.connection, self.connection.cursor(cursor_factory=RealDictCursor) as cursor:
+            self._lock_account(cursor)
+            if self._find(cursor, version_id)['status'] != 'draft':
+                return False
+            cursor.execute("""SELECT 1 FROM qd_ashare_audit
+                WHERE tenant_id=%s AND account_id=%s AND event='strategy_review_notice_intent'
+                  AND details->>'version_id'=%s LIMIT 1""", (*self.key, version_id))
+            if cursor.fetchone() is not None:
+                return False
+            self.broker._audit(cursor, 'strategy_review_notice_intent', {'version_id': version_id})
+            return True
+
+    def record_review_notice(self, version_id, status):
+        with self.connection, self.connection.cursor() as cursor:
+            self.broker._audit(cursor, 'strategy_review_notice_result', {'version_id': version_id, 'status': status})
+
     def create(self, config, request_key, actor):
         self._operator(actor)
         if not _matches(REQUEST_KEY, request_key):

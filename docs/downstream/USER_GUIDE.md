@@ -43,7 +43,7 @@ Use the **desktop Feishu client**: target group → Settings → Bots → Add bo
 
 Open **Feishu notifications** in A-share Paper; older layouts place this tab below orders/positions. Save the Webhook/secret, explicitly send one test message and check actual group delivery. If keyword verification is enabled, allow `模拟交易`, which is present in every message. Never commit or share the secret.
 
-This is one-way notification. Group trading commands and strategy approvals are not connected. “Configured” means saved, not verified delivery.
+The custom bot sends one-way notices. When the administrator sets `ASHARE_REVIEW_BASE_URL` to the site's HTTPS origin, saving a new strategy draft sends a **View pending strategy** card to the account's configured Webhook. The button opens that exact version for sign-in and manual approval. Enabling automatic paper orders remains a separate confirmation. The server attempts a notice at most once per draft.
 
 Newly generated daily ledgers trigger a summary of daily fill counts, buy/sell notional, fees, ending cash, positions and reconciliation, plus a clearly labelled watchlist. Without trustworthy closing valuations, equity, PnL and returns explicitly remain unavailable; cash is not presented as profit. AI recommendations and strategy updates are marked unavailable while unimplemented. Bounded messages identify truncation; full fill records and evidence remain in the page. Previously generated reports are not resent after configuring a bot, and uncertain transport delivery is not automatically retried.
 

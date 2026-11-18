@@ -25,14 +25,42 @@ def notify_text(text: str, *, webhook_url: str | None = None, signing_secret: st
     FEISHU_SIGNING_SECRET. No configuration means disabled. A timeout does not
     prove non-delivery; callers must not retry the same event automatically.
     """
+    payload = None
+    if isinstance(text, str) and text.strip():
+        payload = {"msg_type": "text", "content": {"text": "[模拟交易 / PAPER]\n" + text}}
+    return _send(payload, webhook_url, signing_secret)
+
+
+def notify_strategy_card(version, url, *, webhook_url, signing_secret):
+    config = version["config"]
+    lines = [
+        f"标的 {config['symbol']} · {config['quantity']} 股",
+        f"触发价 {config['threshold']} 元 · 限价 {config['limit_price']} 元",
+        f"含费上限 {config['max_cash']} 元",
+        f"版本 {version['id']}",
+        "登录后审核此版本。批准后仍需单独启用自动模拟委托。",
+    ]
+    payload = {"msg_type": "interactive", "card": {
+        "header": {"title": {"tag": "plain_text", "content": "模拟交易 · 策略待审"}},
+        "elements": [
+            {"tag": "div", "text": {"tag": "plain_text", "content": "\n".join(lines)}},
+            {"tag": "action", "actions": [
+                {"tag": "button", "type": "primary", "text": {"tag": "plain_text", "content": "查看待批策略"},
+                 "url": url},
+            ]},
+        ],
+    }}
+    return _send(payload, webhook_url, signing_secret)
+
+
+def _send(payload, webhook_url, signing_secret):
     webhook = (os.environ.get("FEISHU_WEBHOOK_URL", "") if webhook_url is None else webhook_url).strip()
     if not webhook:
         return {"status": "disabled"}
     if not _WEBHOOK.fullmatch(webhook):
         return {"status": "failed", "error": "invalid_webhook_configuration"}
-    if not isinstance(text, str) or not text.strip():
+    if payload is None:
         return {"status": "failed", "error": "invalid_message"}
-    payload = {"msg_type": "text", "content": {"text": "[模拟交易 / PAPER]\n" + text}}
     secret = os.environ.get("FEISHU_SIGNING_SECRET", "") if signing_secret is None else signing_secret
     if secret:
         timestamp = str(int(time.time()))

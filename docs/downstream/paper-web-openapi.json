@@ -1420,6 +1420,42 @@
         }
       }
     },
+    "/strategy-versions/{version_id}": {
+      "get": {
+        "summary": "Read the exact paper strategy version linked in a review notice",
+        "parameters": [
+          {
+            "name": "version_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Strategy version visible to the signed-in account",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {"type": "integer", "enum": [1]},
+                    "msg": {"type": "string"},
+                    "data": {"$ref": "#/components/schemas/PaperStrategyVersion"}
+                  }
+                }
+              }
+            }
+          },
+          "400": {"description": "Invalid version ID or version unavailable to the signed-in account"},
+          "401": {"description": "Human authentication required"},
+          "503": {"description": "Database unavailable"}
+        }
+      }
+    },
     "/strategy-versions/{version_id}/decision": {
       "post": {
         "summary": "Explicitly approve, enable for PAPER execution, or revoke an exact strategy version",

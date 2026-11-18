@@ -132,3 +132,24 @@ test('refresh and revocation replace the persisted order status for the selected
   assert.equal(state.selected.order.status, 'cancelled')
   assert.equal(state.selected.order.fees, '5.01')
 })
+
+test('a notice opens only its exact strategy, including versions outside the latest page', async () => {
+  const linked = { id: 'a'.repeat(32), status: 'draft', config_sha256: '1'.repeat(64) }
+  const other = { id: 'b'.repeat(32), status: 'draft', config_sha256: '2'.repeat(64) }
+  const calls = []
+  let unavailable = false
+  const state = mount((path, method) => {
+    calls.push([path, method])
+    if (path === '/strategy-versions') return { versions: [other] }
+    if (unavailable) throw new Error('strategy_version_not_found')
+    return linked
+  })
+  state.preferredId = linked.id
+  await state.refresh()
+  assert.equal(state.selected.id, linked.id)
+  unavailable = true
+  await state.refresh()
+  assert.equal(state.selected, undefined)
+  assert.equal(state.error, 'ashare.strategyLinkedVersionUnavailable')
+  assert.ok(calls.every(([, method]) => method === undefined))
+})

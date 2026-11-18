@@ -246,6 +246,7 @@
             :active="activeTab === 'strategy-versions'"
             :can-write="!readOnly && Boolean(state.account)"
             :symbols="symbols"
+            :preferred-id="linkedStrategy"
             :research-seed="strategyResearchSeed" />
         </a-tab-pane>
         <a-tab-pane key="settings" :tab="t('settings')">
@@ -356,6 +357,10 @@ reportsError: '',
 }
   },
   computed: {
+    linkedStrategy () {
+      const value = this.$route.query.strategy_version
+      return typeof value === 'string' && /^[a-f0-9]{32}$/.test(value) ? value : ''
+    },
     researchReady () { return researchCanGenerate(this.researchView) },
     savedResearchTopics () { return ((this.state.settings.research_preferences || {}).topics || []).map(topic => this.t('topic.' + topic)).join(' / ') },
     themeRows () { return themeMembers(this.themeView) },
@@ -394,6 +399,12 @@ reportsError: '',
     ]
 },
     fillColumns () { return this.columns(['order_id', 'symbol', 'side', 'quantity', 'price', 'fee', 'exchange_time']) }
+  },
+  watch: {
+    linkedStrategy: {
+      immediate: true,
+      handler (value) { if (value) this.activeTab = 'strategy-versions' }
+    }
   },
   created () { this.themeController = createThemeBrowser(this.themeView, paperRequest, error => this.themeErrorMessage(error)); this.researchController = createResearchBrowser(this.researchView, paperRequest, error => this.researchErrorMessage(error)) },
   mounted () { document.addEventListener('visibilitychange', this.syncResearchVisibility); this.clock = setInterval(() => { this.now = Date.now() }, 1000); this.poll() },

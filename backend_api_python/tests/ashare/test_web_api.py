@@ -389,6 +389,39 @@ def test_immutable_strategy_version_human_approval_and_revocation(client):
     assert account["orders"] == [] and account["account"]["cash"] == "10000.00"
 
 
+def test_feishu_review_deep_link_is_read_only_tenant_scoped_and_sent_once(client, monkeypatch):
+    from app.ashare import web_api
+
+    monkeypatch.setenv("ASHARE_REVIEW_BASE_URL", "https://paper.example.test")
+    notices = []
+
+    def notify(version, url, **credentials):
+        notices.append((version["id"], url))
+        assert credentials["webhook_url"].endswith("/review-fixture")
+        return {"status": "failed", "error": "transport_error_delivery_unknown"}
+
+    monkeypatch.setattr(web_api, "notify_strategy_card", notify)
+    assert call(client, "/initialize", {"initial_cash": "10000"}).status_code == 200
+    assert call(client, "/notifications/config", {
+        "webhook_url": "https://open.feishu.cn/open-apis/bot/v2/hook/review-fixture",
+    }).status_code == 200
+    base = "/strategy-versions"
+    payload = {"config": _strategy_config(), "request_key": "linked-paper-strategy"}
+    draft = call(client, base, payload).json["data"]
+    assert call(client, base, payload).json["data"] == draft
+    path = f"{base}/{draft['id']}"
+    assert notices == [(draft['id'], f"https://paper.example.test/#/ashare-paper?strategy_version={draft['id']}")]
+    assert client.get("/api/ashare-paper" + path).status_code == 401
+    assert call(client, path, token="other", method="GET").json["msg"] == "strategy_version_not_found"
+    assert call(client, path + "?_t=1", method="GET").json["data"] == draft
+    assert call(client, path + "?decision=approved", method="GET").status_code == 400
+    state = call(client, "/state", method="GET").json["data"]
+    events = [row for row in state["audit"] if row["event"].startswith("strategy_review_notice")]
+    assert [row["event"] for row in events] == ["strategy_review_notice_intent", "strategy_review_notice_result"]
+    assert events[-1]["details"] == {"version_id": draft["id"], "status": "unknown"}
+    assert state["orders"] == [] and draft["status"] == "draft" and draft["execution_allowed"] is False
+
+
 @pytest.mark.parametrize("config", [
     _strategy_config(mode="live"),
     _strategy_config(kind="execute_code"),
