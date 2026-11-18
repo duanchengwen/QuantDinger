@@ -10,7 +10,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -27,7 +27,6 @@ from psycopg2.extras import RealDictCursor
 from app.ashare.calendar_rules import market_session, trading_day_status
 from app.ashare.schema import get_database_url
 
-now = datetime.now(timezone.utc)
 connection = psycopg2.connect(get_database_url(), connect_timeout=5,
     options='-c statement_timeout=10000 -c lock_timeout=1000 -c application_name=paper_readonly_monitor')
 connection.set_session(readonly=True, isolation_level='REPEATABLE READ')
@@ -48,6 +47,8 @@ with connection, connection.cursor(cursor_factory=RealDictCursor) as cursor:
     news_schema_present, research_schema_present = schema['news_present'], schema['research_present']
     cursor.execute('SELECT process_name, observed_at, details FROM qd_ashare_process_health')
     heartbeats = [dict(row) for row in cursor.fetchall()]
+    # The transaction snapshot is already established, including any newly committed heartbeats.
+    now = datetime.now(timezone.utc)
     cursor.execute('SELECT tenant_id,account_id,quotes,worker,notifications_encrypted IS NOT NULL AS bot_configured FROM qd_ashare_web ORDER BY tenant_id,account_id')
     web = list(cursor.fetchall())
     for row in web:
@@ -177,6 +178,7 @@ def collect(state):
         payload['theme_sync_status'] = theme_sync_status(state)
     if any(payload.get('research_' + job + '_job', {}).get('LoadState') == 'loaded' for job in ('news', 'work', 'request')):
         payload['research_job_status'] = research_job_status(state)
+    payload['jobs_observed_at'] = datetime.now(timezone.utc).isoformat()
     return payload
 
 
@@ -223,7 +225,7 @@ def research_job_status(state):
         return {'status': 'invalid_or_unavailable', 'jobs': {}}
 
 
-def assess_research(payload, now, issues, pending):
+def assess_research(payload, now, jobs_now, issues, pending):
     """Additional evidence stays optional for deployments predating these jobs."""
     summary = payload.get('research_job_status', {})
     for name in ('news', 'work', 'request'):
@@ -248,16 +250,18 @@ def assess_research(payload, now, issues, pending):
         if status in ('failed', 'unknown'):
             issues.append(prefix + '_state_' + status)
         elif status in ('needs_model_configuration', 'no_evidence', 'skipped_before_window', 'skipped_active', 'skipped_daily_limit', 'queued', 'started'):
-            pending.append(prefix + '_' + status)
+            # The request unit's queued acknowledgement never tracks the run lifecycle.
+            if (name, status) != ('request', 'queued'):
+                pending.append(prefix + '_' + status)
         elif status not in ('ingested', 'idle', 'completed'):
             issues.append(prefix + '_state_invalid')
         try:
-            age = (now - timestamp(item['updated_at'])).total_seconds()
-            started_age = (now - timestamp(item['started_at'])).total_seconds()
+            age = (jobs_now - timestamp(item['updated_at'])).total_seconds()
+            started_age = (jobs_now - timestamp(item['started_at'])).total_seconds()
             if age < 0 or started_age < age:
                 issues.append(prefix + '_time_invalid_or_future')
             else:
-                local = now.astimezone(ZoneInfo('Asia/Shanghai'))
+                local = jobs_now.astimezone(ZoneInfo('Asia/Shanghai'))
                 # News intentionally sleeps overnight; allow its first morning run.
                 limit = 90 * 60 if (7, 30) <= (local.hour, local.minute) <= (22, 59) else 12 * 3600
                 if name != 'news':
@@ -343,6 +347,7 @@ def backup_status(root, now):
 
 def assess(payload, backup, *, target_days=5):
     now = timestamp(payload['observed_at'])
+    jobs_now = timestamp(payload.get('jobs_observed_at', payload['observed_at']))
     issues, pending = [], []
     containers = {row['Service']: row for row in payload['containers']}
     for service in ('api', 'worker', 'db', 'web'):
@@ -405,23 +410,23 @@ def assess(payload, backup, *, target_days=5):
         for key in ('started_at', 'completed_at'):
             if theme_status.get(key):
                 try:
-                    if timestamp(theme_status[key]) > now:
+                    if timestamp(theme_status[key]) > jobs_now:
                         issues.append('theme_sync_job_time_in_future')
                 except (TypeError, ValueError):
                     issues.append('theme_sync_job_time_invalid')
         if status == 'completed':
             try:
-                if (now - timestamp(theme_status['completed_at'])).total_seconds() > 30 * 3600:
+                if (jobs_now - timestamp(theme_status['completed_at'])).total_seconds() > 30 * 3600:
                     issues.append('theme_sync_job_completion_stale')
             except (KeyError, TypeError, ValueError):
                 issues.append('theme_sync_job_time_invalid')
         if status == 'running':
             try:
-                if (now - timestamp(theme_status['started_at'])).total_seconds() > 300:
+                if (jobs_now - timestamp(theme_status['started_at'])).total_seconds() > 300:
                     issues.append('theme_sync_job_running_stale')
             except (KeyError, TypeError, ValueError):
                 issues.append('theme_sync_job_time_invalid')
-    assess_research(payload, now, issues, pending)
+    assess_research(payload, now, jobs_now, issues, pending)
     if payload.get('data_free_bytes', 0) < 100 * 1024 * 1024:
         issues.append('data_volume_capacity_low')
     if backup.get('free_bytes', 0) < 500 * 1024 * 1024:
@@ -456,6 +461,7 @@ def assess(payload, backup, *, target_days=5):
         pending.append('natural_sample_days_below_target')
     pending.extend(['intraday_gap_and_full_session_coverage_not_proven', 'remaining_backlog_requires_separate_acceptance'])
     return {'schema_version': 1, 'mode': 'paper', 'observed_at': payload['observed_at'],
+            'jobs_observed_at': jobs_now.isoformat(),
             'status': 'attention' if issues else 'operational', 'issues': sorted(set(issues)),
             'pending_acceptance': sorted(set(pending)), 'session': payload['session'],
             'natural_sample_days': days, 'target_natural_sample_days': target_days,

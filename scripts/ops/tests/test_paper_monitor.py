@@ -2,7 +2,7 @@
 import copy
 import io
 from contextlib import redirect_stdout
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import importlib.util
 import json
 import sys
@@ -313,6 +313,25 @@ class MonitorTests(unittest.TestCase):
             value['research_' + name + '_job']['Result'] = 'exit-code'
             self.assertIn('research_' + name + '_job_failed', self.report(value)['issues'])
 
+    def test_request_acknowledgement_is_not_a_pending_run(self):
+        value = self.research_payload(name='request', status='queued')
+        value['research_schema_present'] = True
+        stamp = value['observed_at']
+        value['research_runs'] = [{
+            'id': 'a' * 32, 'account_ref': 'hashed-account', 'status': 'completed',
+            'created_at': stamp, 'started_at': stamp, 'completed_at': stamp,
+            'execution_allowed': False, 'approval_status': 'not_submitted',
+        }]
+        report = self.report(value)
+        self.assertNotIn('research_request_job_queued', report['pending_acceptance'])
+        value['research_runs'][0].update(status='queued', started_at=None, completed_at=None)
+        self.assertIn('research_queued:hashed-account', self.report(value)['pending_acceptance'])
+
+    def test_host_summary_uses_its_observation_clock(self):
+        value = self.research_payload(name='work', stamp='2026-11-17T10:00:01+08:00')
+        value['jobs_observed_at'] = '2026-11-17T10:00:02+08:00'
+        self.assertNotIn('research_work_job_time_invalid_or_future', self.report(value)['issues'])
+
     def test_failed_and_unknown_research_summaries_raise_attention(self):
         for status in ('failed', 'unknown'):
             report = self.report(self.research_payload(status=status))
@@ -425,6 +444,13 @@ class MonitorTests(unittest.TestCase):
     def test_collector_queries_latest_research_for_each_account_without_sensitive_columns(self):
         queries = []
         current = datetime.now(timezone.utc)
+        heartbeat_at = current + timedelta(microseconds=1)
+        heartbeat_read = False
+        class Clock(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                stamp = heartbeat_at if heartbeat_read else current
+                return stamp.astimezone(tz)
         class Cursor:
             def __enter__(self): return self
             def __exit__(self, *_): return False
@@ -436,6 +462,11 @@ class MonitorTests(unittest.TestCase):
                 if 'to_regclass' in self.query: return {'present': False}
                 return {'mismatches': 0}
             def fetchall(self):
+                nonlocal heartbeat_read
+                if 'FROM qd_ashare_process_health' in self.query:
+                    heartbeat_read = True
+                    return [{'process_name': 'managed_paper_worker', 'observed_at': heartbeat_at,
+                             'details': {'status': 'running'}}]
                 if 'FROM qd_ashare_web' in self.query: return [{'tenant_id': tenant, 'account_id': 'paper', 'quotes': [], 'worker': {}, 'bot_configured': False} for tenant in ('one', 'two')]
                 return []
         connection = SimpleNamespace(cursor=lambda **_: Cursor(), close=lambda: None)
@@ -451,6 +482,7 @@ class MonitorTests(unittest.TestCase):
             def __init__(self, value): self.connection = value
             def list_items(self, **kwargs): calls.append(kwargs); return {'items': [], 'receipts': []}
         modules = {
+            'datetime': SimpleNamespace(datetime=Clock, timezone=timezone),
             'psycopg2': SimpleNamespace(connect=lambda *_, **__: db, Error=RuntimeError),
             'psycopg2.extras': SimpleNamespace(RealDictCursor=object),
             'app.ashare.calendar_rules': SimpleNamespace(market_session=lambda _: {}, trading_day_status=lambda _: {}),
@@ -467,6 +499,7 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(db.session['readonly'], True)
         self.assertEqual(calls[0]['limit'], 1)
         self.assertEqual(len(data['research_runs']), 2)
+        self.assertGreaterEqual(monitor.timestamp(data['observed_at']), monitor.timestamp(data['heartbeats'][0]['observed_at']))
         self.assertNotIn('stub-private-dsn', output.getvalue())
         self.assertNotIn('tenant_id', output.getvalue())
 

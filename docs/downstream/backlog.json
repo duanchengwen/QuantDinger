@@ -56,7 +56,7 @@
     {
       "id": "deepseek_research_agent",
       "status": "accepted_limited_scope",
-      "acceptance": "User configured deepseek-flash; actual single request completed with one evidence-scoped issuer research candidate, 1768 provider tokens, input/output hashes. Daily 08:30 explicit-account request timer and two-minute finite queue worker installed. No executable strategy, approval or orders; title evidence only."
+      "acceptance": "User configured deepseek-flash; Manual and scheduled real requests completed with one evidence-scoped issuer research candidate each. The first 08:30 scheduled run completed on Nov18 using 1833 provider tokens, with verified input/output hashes and no execution authority. No executable strategy, approval or orders; title evidence only."
     },
     {
       "id": "recommendations_and_approval",
