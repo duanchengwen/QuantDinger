@@ -74,3 +74,14 @@ Python 3.11 and 3.12 each passed 489 focused tests. The frontend passed 41 tests
 The November 18 morning archive contained 1,290 usable quote batches and one stale opening batch. The longest usable-receipt gap was 16.123 seconds. The formal November 17 observations cover the afternoon only. Afternoon coverage, end-of-day reports and the five natural trading days still need per-day verification.
 
 Local evidence in the parent workspace's `work/quantdinger-natural-acceptance/` includes `strategy-production-deployment-20261118.json`, `strategy-upgrade-rehearsal-20261118.json` and `coverage-20261118-morning-close.json`.
+
+## November 18 close
+
+| Continuous auction session | Usable at receipt | Stale at receipt | Longest usable receipt gap | Upper bound on fresh archived quote coverage |
+| --- | ---: | ---: | ---: | ---: |
+| Morning | 1,290 | 1 | 16.123 seconds | 99.6% |
+| Afternoon | 1,247 | 37 | 19.564 seconds | 49.5% |
+
+The coverage estimate combines the 15-second freshness windows of hash-verified batches. The longest afternoon interval without a fresh archived batch was about 17.9 seconds. Historical trial receipts from November 17 morning are separate from the November 17 managed afternoon observations. Five natural trading days and reliable intraday quality remain open.
+
+The November 18 report was generated naturally at 15:00:00 China time and reconciled. It recorded zero fills and missing verified closing valuation, leaving equity unavailable. The account held zero outstanding orders at the close. Feishu delivery remains unconfirmed. Local proof comprises `coverage-20261117-18-close.json` and `natural-close-ledger-20261118.json`.

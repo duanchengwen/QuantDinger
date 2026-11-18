@@ -36,7 +36,7 @@
     {
       "id": "natural_multiday_validation",
       "status": "observing",
-      "acceptance": "Nov17 managed observations covered only the afternoon; earlier trial receipts are separate. Nov18 morning archive verified 1290 usable batches, one stale opening batch and a maximum usable-receipt gap of 16.123 seconds. Afternoon and at least five natural trading days still require per-session, report and ledger checks."
+      "acceptance": "Nov17 managed observations cover the afternoon; earlier trial receipts are separate. Nov18 morning and afternoon had 1290 and 1247 usable batches, 1 and 37 stale batches, and maximum usable-receipt gaps of 16.123 and 19.564 seconds. The archive estimates fresh-batch availability at 99.6% and 49.5%, respectively. The natural Nov18 report reconciled. More observation days and reliable intraday quality are pending."
     },
     {
       "id": "certified_intraday_security_status",
@@ -51,7 +51,7 @@
     {
       "id": "scheduled_news_ingestion",
       "status": "accepted_limited_scope",
-      "acceptance": "CNinfo retains original JSON/PDF records. The Nov18 13:00 natural schedule produced 8 verified excerpts. Optional worker and UI support for those excerpts passed a real-evidence replay with an intercepted model request and is staged for deployment. Actual scheduled excerpt research and broad industry news remain open."
+      "acceptance": "CNinfo retains original JSON/PDF records. The Nov18 13:00 natural schedule produced 8 verified excerpts. The excerpt-aware worker and UI passed a real-evidence replay and deployed locally at 15:03. A scheduled real model result using an excerpt and broader industry news remain open."
     },
     {
       "id": "deepseek_research_agent",

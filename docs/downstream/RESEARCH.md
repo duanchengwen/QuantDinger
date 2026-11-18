@@ -2,13 +2,13 @@
 
 [简体中文](RESEARCH_CN.md) · [User guide](USER_GUIDE.md) · [News evidence](research/NEWS_SOURCES.md)
 
-This version implements a separate research queue and an A-share page panel. It reads archived theme members and a limited sample of CNinfo company announcement titles, then asks the explicitly configured DeepSeek model for research candidates. It does not implement the complete industry-news → executable strategy → approved automatic PAPER workflow. Deployment, real provider calls and natural timer execution require their own acceptance evidence; implementation and offline tests do not establish that those steps succeeded.
+The A-share research queue uses archived theme members, a limited sample of CNinfo announcement titles and eligible excerpts as evidence for the configured DeepSeek model. Excerpt support is deployed locally. The first natural model run using an excerpt remains pending. Broader industry coverage, executable strategy generation and out-of-sample evaluation require separate acceptance. See the [news acceptance record](NEWS_RESEARCH_ACCEPTANCE.md).
 
 ## User flow
 
 1. Save the account's research preferences. This does not launch collection, model calls or trades.
 2. In model settings, save the DeepSeek key privately and choose a supported DeepSeek model, such as `deepseek-flash`. Do not paste keys into chat. The research adapter reads the existing service configuration and does not change the user's global provider or model choice.
-3. Open the news/research panel. Inspect the source, publication and receipt times, hashes and explicit title-only scope. Refreshing reads existing records; it does not fetch sources or run the model.
+3. Open the news and research panel to inspect sources, publication and receipt timestamps, hashes and citation scope. Refreshing reads the existing records.
 4. Request research explicitly, or use a separately deployed schedule for an explicitly authorized account. The HTTP request creates a durable queue record and returns promptly. The independent finite worker processes the record.
 5. Read the result, cited announcement IDs and risks. No result changes watchlists, rules, approvals, positions or orders. There is no strategy approval/activation button in this research flow.
 
@@ -20,7 +20,7 @@ The official [DeepSeek retirement notice](https://api-docs.deepseek.com/news/new
 | --- | --- |
 | Preference mapping | Versioned `ai → BK0800`, `robotics → BK1090`, `new_energy → BK0493`. Semiconductors and custom topics are retained in preferences but do not invent a board mapping. “Current events” does not enable an unrestricted web search. |
 | Themes | Read and verify the latest archived observation known at research start, including all stored members and raw archive hashes. These are observations, not certified historical or current exchange constituents. |
-| News | Fixed CNinfo original index and PDF source; at most five first-page announcements per supported topic per collection. JSON and PDF bytes are archived and hashed. PDF bodies are not parsed or supplied to the model. |
+| News | The original CNinfo index supplies up to five first-page announcements per supported topic per collection. Original JSON and PDF bytes are archived. The queue can use verified excerpts from the first three pages, with up to 2,000 characters per research item. Eligible titles remain available when excerpts are unavailable. |
 | Freshness | Provider-reported publication time and local receipt/knowledge time remain distinct. Research requires a valid publication within seven days, no future publication/receipt, and `known_at <= research_started_at`. Missing timestamps are not replaced with today's date. |
 | Candidate universe | Verified theme members intersected with explicit official announcement issuer identity and matching topic. A topical title alone cannot associate an unrelated stock. |
 | Model limits | At most 20 input announcements and 10 output candidates; fixed JSON prompt, 4,096 output tokens, tools disabled, one provider HTTP attempt, 90-second total subprocess limit. |
