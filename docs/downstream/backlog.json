@@ -91,7 +91,7 @@
     {
       "id": "feishu_delivery",
       "status": "user_configured_unverified",
-      "acceptance": "Webhook is configured. A durable send-intent and sanitized outcome appear on the daily ledger in the tested receipt release, pending deployment. Nov18 actual report delivery evidence was not observed. Group receipt and future natural webhook acceptance remain open."
+      "acceptance": "Webhook is configured. The durable receipt release deployed locally on Nov18 at 16:12. Both existing reports retain their original content with no observed receipt. Future natural webhook acceptance and actual group display remain open."
     },
     {
       "id": "calendar_2027",
