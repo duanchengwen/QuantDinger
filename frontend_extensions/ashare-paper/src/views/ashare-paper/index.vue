@@ -244,8 +244,10 @@
         <a-tab-pane key="strategy-versions" :tab="t('strategyVersions')">
           <strategy-versions
             :active="activeTab === 'strategy-versions'"
+            :account-ready="Boolean(state.account)"
             :can-write="!readOnly && Boolean(state.account)"
             :symbols="symbols"
+            :symbol-label="symbolLabel"
             :preferred-id="linkedStrategy"
             :research-seed="strategyResearchSeed" />
         </a-tab-pane>

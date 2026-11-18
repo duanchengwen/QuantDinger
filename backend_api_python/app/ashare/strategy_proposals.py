@@ -16,6 +16,7 @@ from app.ashare.notifications import send_strategy_review_notice
 from app.ashare.research import ResearchError, ResearchStore, _decode, _instant
 from app.ashare.runtime import utc_now
 from app.ashare.schema import get_database_url
+from app.ashare.strategy_template import minimum_buy_config, saved_template
 from app.ashare.strategy_versions import (
     PROPOSAL_REQUEST_PREFIX,
     SELECT_VERSION,
@@ -33,14 +34,19 @@ MAX_TEMPLATE_RULES = 10
 PROPOSED_EVENT = 'strategy_draft_proposed_from_research'
 
 
+def _valid_scope(tenant, account_id):
+    return (account_id == 'paper' and isinstance(tenant, str)
+            and re.fullmatch(r'user_[1-9][0-9]{0,18}', tenant) is not None
+            and int(tenant[5:]) <= 2**63 - 1)
+
+
 def normalize_template(value):
     if not isinstance(value, dict) or set(value) != TEMPLATE_FIELDS:
         raise ValueError('invalid_proposal_template')
     tenant, rules = value['tenant_id'], value['rules']
     if (type(value['schema_version']) is not int or value['schema_version'] != 1
-            or type(value['enabled']) is not bool or value['account_id'] != 'paper'
-            or not isinstance(tenant, str) or not re.fullmatch(r'user_[1-9][0-9]{0,18}', tenant)
-            or int(tenant[5:]) > 2**63 - 1 or not isinstance(value['expires_at'], str)
+            or type(value['enabled']) is not bool or not _valid_scope(tenant, value['account_id'])
+            or not isinstance(value['expires_at'], str)
             or not isinstance(rules, list) or not 1 <= len(rules) <= MAX_TEMPLATE_RULES):
         raise ValueError('invalid_proposal_template')
     try:
@@ -60,18 +66,38 @@ def normalize_template(value):
 def propose(connection, template, *, now=None):
     template = normalize_template(template)
     now = _instant(now if now is not None else utc_now())
+    if not template['enabled'] or _instant(template['expires_at']) <= now:
+        return {'execution_allowed': False, 'approvals_created': 0, 'status': 'inactive_template'}
+    return _propose(connection, template['tenant_id'], template['account_id'], now, file_template=template)
+
+
+def propose_saved(connection, tenant, account_id, *, now=None):
+    if not _valid_scope(tenant, account_id):
+        raise ValueError('invalid_proposal_scope')
+    return _propose(connection, tenant, account_id, _instant(now if now is not None else utc_now()))
+
+
+def _propose(connection, tenant, account_id, now, *, file_template=None):
     local_day = now.astimezone(SHANGHAI).date()
     outcome = {'execution_allowed': False, 'approvals_created': 0}
-    if not template['enabled'] or _instant(template['expires_at']) <= now:
-        return {**outcome, 'status': 'inactive_template'}
     if not trading_day_status(local_day)['is_trading_day']:
         return {**outcome, 'status': 'no_verified_trading_day'}
 
-    tenant, account_id = template['tenant_id'], template['account_id']
     actor = int(tenant[5:])
     versions, research = StrategyVersions(connection, tenant, account_id), ResearchStore(connection, tenant, account_id)
     with connection, connection.cursor(cursor_factory=RealDictCursor) as cursor:
         account, web = versions._lock_account(cursor)
+        settings = web['settings']
+        if file_template is None:
+            saved = saved_template(settings)
+            template = saved['template']
+            if template is None or not template['enabled']:
+                return {**outcome, 'status': 'inactive_template'}
+            origin = {'origin': 'scheduled_research_saved_template',
+                      'template_sha256': config_hash(template), 'template_revision': saved['revision']}
+        else:
+            origin = {'origin': 'scheduled_research_template', 'template_sha256': config_hash(file_template)}
+
         run = research.find_completed_scheduled_run(cursor, local_day)
         if run is None:
             return {**outcome, 'status': 'no_completed_scheduled_run'}
@@ -93,9 +119,15 @@ def propose(connection, template, *, now=None):
                 raise ValueError('strategy_proposal_request_key_conflict')
             return {**outcome, 'status': 'already_proposed', 'version_id': existing['id']}
 
-        eligible = {candidate['symbol'] for candidate in run['candidates']}.intersection(
-            web['settings'].get('symbols', []))
-        for rule in template['rules']:
+        candidates = [candidate['symbol'] for candidate in run['candidates']]
+        eligible = set(candidates).intersection(settings.get('symbols', []))
+        if file_template is None:
+            if template['symbol_scope'] == 'selected':
+                eligible.intersection_update(template['symbols'])
+            rules = [minimum_buy_config(template, symbol) for symbol in candidates if symbol in eligible]
+        else:
+            rules = file_template['rules']
+        for rule in rules:
             if rule['symbol'] not in eligible:
                 continue
             funding = versions._funding(rule, account)
@@ -106,8 +138,7 @@ def propose(connection, template, *, now=None):
             }})
             draft = versions._insert_draft(cursor, config, request_key, actor, funding)
             versions.broker._audit(cursor, PROPOSED_EVENT, {
-                'version_id': draft['id'], 'run_id': run['id'], 'template_sha256': config_hash(template),
-                'template_owner': actor, 'origin': 'scheduled_research_template',
+                'version_id': draft['id'], 'run_id': run['id'], 'template_owner': actor, **origin,
             })
             return {**outcome, 'status': 'draft_created', 'version_id': draft['id']}
         return {**outcome, 'status': 'no_eligible_template_match'}
@@ -121,14 +152,22 @@ def decode_template(raw):
     return template
 
 
-def propose_and_notify(connection, raw_template):
+def propose_and_notify(connection, raw_template=None, *, scope=None):
     """Continue a completed research run through draft commit and one notice claim."""
+    if raw_template is not None:
+        try:
+            template = decode_template(raw_template)
+        except (ValueError, UnicodeError):
+            return {'status': 'invalid_template'}
+        file_scope = (template['tenant_id'], template['account_id'])
+        if scope is not None and scope != file_scope:
+            return {'status': 'invalid_template'}
+        scope = file_scope
+    if scope is None:
+        return {'status': 'proposal_failed'}
     try:
-        template = decode_template(raw_template)
-    except (ValueError, UnicodeError):
-        return {'status': 'invalid_template'}
-    try:
-        outcome = propose(connection, template)
+        outcome = (propose_saved(connection, *scope) if raw_template is None
+                   else propose(connection, template))
     except (ValueError, psycopg2.Error):
         return {'status': 'proposal_failed'}
     version_id = outcome.get('version_id')
@@ -136,7 +175,7 @@ def propose_and_notify(connection, raw_template):
     if not version_id:
         return result
     result['version_id'] = version_id
-    store = WebStore(connection, template['tenant_id'], template['account_id'])
+    store = WebStore(connection, *scope)
     versions = StrategyVersions(connection, *store.key)
     try:
         version = versions.get(version_id)

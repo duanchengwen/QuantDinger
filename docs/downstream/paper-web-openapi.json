@@ -231,6 +231,32 @@
           }
         }
       },
+      "PaperStrategyTemplate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["enabled", "symbol_scope", "symbols", "trigger_price", "limit_price", "max_cash"],
+        "properties": {
+          "enabled": {"type": "boolean"},
+          "symbol_scope": {"type": "string", "enum": ["watched", "selected"]},
+          "symbols": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {"type": "string", "pattern": "^(sh\\.60[0-9]{4}|sz\\.(000|001|002|003|300|301)[0-9]{3})$"}
+          },
+          "trigger_price": {"type": "string", "pattern": "^[0-9]{1,9}(\\.[0-9]{1,2})?$"},
+          "limit_price": {"type": "string", "pattern": "^[0-9]{1,9}(\\.[0-9]{1,2})?$"},
+          "max_cash": {"type": "string", "pattern": "^[0-9]{1,9}(\\.[0-9]{1,2})?$"}
+        }
+      },
+      "PaperStrategyTemplateState": {
+        "type": "object",
+        "required": ["revision", "template"],
+        "additionalProperties": false,
+        "properties": {
+          "revision": {"type": "integer", "minimum": 0},
+          "template": {"nullable": true, "allOf": [{"$ref": "#/components/schemas/PaperStrategyTemplate"}]}
+        }
+      },
       "PaperStrategyConfig": {
         "type": "object",
         "required": [
@@ -1293,6 +1319,51 @@
             }
           }
         ]
+      }
+    },
+    "/strategy-template": {
+      "get": {
+        "summary": "Read the caller's scheduled paper buy proposal template",
+        "responses": {
+          "200": {
+            "description": "Current configuration and revision, with a null template before first save",
+            "content": {"application/json": {"schema": {"type": "object", "properties": {
+              "code": {"type": "integer", "enum": [1]}, "msg": {"type": "string"},
+              "data": {"$ref": "#/components/schemas/PaperStrategyTemplateState"}
+            }}}}
+          },
+          "400": {"description": "Invalid request or invalid persisted template"},
+          "401": {"description": "Human authentication required"},
+          "503": {"description": "Database unavailable"}
+        }
+      },
+      "put": {
+        "summary": "Save only scheduled paper draft settings for the caller's account",
+        "description": "Writes an account-scoped revision. The scheduler may create a review-only draft from verified same-day scheduled research. Saving does not approve a strategy, activate execution, or place an order.",
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {
+            "type": "object", "required": ["expected_revision", "template"], "additionalProperties": false,
+            "properties": {
+              "expected_revision": {"type": "integer", "minimum": 0},
+              "template": {"$ref": "#/components/schemas/PaperStrategyTemplate"}
+            }
+          }}}
+        },
+        "responses": {
+          "200": {
+            "description": "Saved configuration and its revision",
+            "content": {"application/json": {"schema": {"type": "object", "properties": {
+              "code": {"type": "integer", "enum": [1]}, "msg": {"type": "string"},
+              "data": {"$ref": "#/components/schemas/PaperStrategyTemplateState"}
+            }}}}
+          },
+          "400": {"description": "Invalid template, unsupported symbol or insufficient fee-inclusive cap"},
+          "401": {"description": "Human authentication required"},
+          "403": {"description": "Paper write permission required"},
+          "409": {"description": "strategy_template_conflict. Fetch the current revision before editing again."},
+          "503": {"description": "Database unavailable"}
+        }
       }
     },
     "/strategy-versions": {

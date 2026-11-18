@@ -105,7 +105,7 @@ def test_output_strips_unexpected_provider_and_secret_fields():
 def test_templates_are_inert_explicit_account_and_bounded(state, tmp_path):
     folder = tmp_path/'units'
     with patch.object(jobs.subprocess, 'run') as run:
-        assert jobs.templates(state, folder, 'user:7', 'paper') == 0
+        assert jobs.templates(state, folder, 'user_7', 'paper') == 0
     run.assert_not_called()
     assert len(list(folder.iterdir())) == 6
     news = (folder/'quantdinger-research-news-paper-test.timer').read_text()
@@ -114,21 +114,22 @@ def test_templates_are_inert_explicit_account_and_bounded(state, tmp_path):
     worker = (folder/'quantdinger-research-work-paper-test.service').read_text()
     assert '07..22:00/30:00 Asia/Shanghai' in news
     assert 'OnUnitActiveSec=2min' in work
-    assert 'user:7' in request and '--daily' in request and '--account-id' in request
+    assert 'user_7' in request and '--daily' in request and '--account-id' in request
+    assert '"--tenant-id" "user_7" "--account-id" "paper"' in worker
     assert 'After=quantdinger-research-news-paper-test.service\n' in request
     assert 'After=quantdinger-research-news-paper-test.service quantdinger-research-request-paper-test.service\n' in worker
     for path in folder.glob('*.service'):
         assert 'Restart=no' in path.read_text() and 'TimeoutStartSec=' in path.read_text()
         assert path.stat().st_mode & 0o777 == 0o600
-    with pytest.raises(ValueError): jobs.templates(state, folder, 'user:7', 'paper')
+    with pytest.raises(ValueError): jobs.templates(state, folder, 'user_7', 'paper')
 
 
 def test_excerpt_template_changes_only_the_research_worker(state):
     plain = state / 'plain-units'
     enabled = state / 'excerpt-units'
     directory = state / 'compiled-excerpts'
-    jobs.templates(state, plain, 'user:7', 'paper')
-    jobs.templates(state, enabled, 'user:7', 'paper', excerpt_dir=directory)
+    jobs.templates(state, plain, 'user_7', 'paper')
+    jobs.templates(state, enabled, 'user_7', 'paper', excerpt_dir=directory)
     worker_name = 'quantdinger-research-work-paper-test.service'
     for expected in plain.iterdir():
         actual = (enabled / expected.name).read_text()
@@ -137,6 +138,15 @@ def test_excerpt_template_changes_only_the_research_worker(state):
             assert 'quantdinger-research-news-pdf-paper-test.service' in actual
         else:
             assert actual == expected.read_text()
+
+
+def test_legacy_non_owner_schedule_still_runs_research_only(state):
+    units = state / 'legacy-units'
+    jobs.templates(state, units, 'user:7', 'paper')
+    request = (units / 'quantdinger-research-request-paper-test.service').read_text()
+    worker = (units / 'quantdinger-research-work-paper-test.service').read_text()
+    assert '"--tenant-id" "user:7"' in request
+    assert '--tenant-id' not in worker
 
 
 def test_scheduler_template_opt_in_changes_only_worker_command(state):
@@ -173,17 +183,34 @@ def test_proposal_template_is_private_and_sent_only_via_stdin(state, source):
         patch.object(jobs, 'cleanup_container', return_value=True),
         patch.object(jobs.subprocess, 'run', return_value=idle) as run,
     ):
-        assert jobs.run_job(state, 'work', proposal_template=template) == 0
+        assert jobs.run_job(state, 'work', tenant_id='user_7', proposal_template=template) == 0
     payload = json.loads(run.call_args.kwargs['input'])
     summary = jobs.load_job_status(state)['jobs']['work']
     assert run.call_args.args[0] == ['fixture']
     assert 'fixture private value' not in (state / jobs.STATUS_NAME).read_text()
     if source == 'private':
         assert base64.b64decode(payload['proposal_template']) == b'fixture private value'
+        assert payload['proposal_scope'] == ['user_7', 'paper']
         assert 'proposal' not in summary
     else:
         assert payload == {'job': 'work'}
         assert summary['proposal'] == {'status': 'invalid_template'}
+
+
+def test_scoped_work_reads_saved_template_without_operator_file(state):
+    response = SimpleNamespace(stdout='{"job":"work","status":"idle","execution_allowed":false,'
+                                      '"proposal":{"status":"inactive_template"}}', returncode=0)
+    with (
+        patch.object(jobs.ops, 'compose', return_value=['fixture']),
+        patch.object(jobs, 'cleanup_container', return_value=True),
+        patch.object(jobs.subprocess, 'run', return_value=response) as run,
+    ):
+        assert jobs.run_job(state, 'work', tenant_id='user_7') == 0
+        with pytest.raises(ValueError, match='invalid_proposal_scope'):
+            jobs.run_job(state, 'work', tenant_id='user_7', account_id='live')
+    run.assert_called_once()
+    assert json.loads(run.call_args.kwargs['input']) == {'job': 'work', 'proposal_scope': ['user_7', 'paper']}
+    assert jobs.load_job_status(state)['jobs']['work']['proposal'] == {'status': 'inactive_template'}
 
 
 @pytest.mark.parametrize('proposal', [
@@ -406,7 +433,13 @@ def test_daily_request_budget_is_terminal_skip(reason,status):
     research.ResearchStore.return_value.request_scheduled_run.assert_called_once()
 
 
-@pytest.mark.parametrize('payload',[{'job':'work','tenant_id':'user:7'},{'job':'request'},{'job':'news','date':'2020-01-01'}])
+@pytest.mark.parametrize('payload', [
+    {'job': 'work', 'tenant_id': 'user:7'}, {'job': 'request'}, {'job': 'news', 'date': '2020-01-01'},
+    {'job': 'work', 'proposal_scope': ['user_7', 'live']},
+    {'job': 'work', 'proposal_scope': ['user_9223372036854775808', 'paper']},
+    {'job': 'work', 'proposal_scope': {'tenant_id': 'user_7', 'account_id': 'paper'}},
+    {'job': 'request', 'proposal_scope': ['user_7', 'paper']},
+])
 def test_child_rejects_scope_injection(payload):
     code,result,research,news,db=child(payload)
     assert code == 1 and result['status'] == 'failed'

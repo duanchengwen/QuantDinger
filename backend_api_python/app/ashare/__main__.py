@@ -87,6 +87,7 @@ def main(argv=None):
         elif args.command == "run":
             if args.cycles < 0:
                 raise ValueError("cycles must be nonnegative")
+            from app.ashare.daily_notification import format_paper_event
             from app.ashare.market import fetch_quotes
             from app.ashare.notifications import notify_text
 
@@ -109,8 +110,8 @@ def main(argv=None):
                 result["cycle"] = cycle
                 if args.notify and (result["fills"] or result["state"] != previous_state):
                     result["notification"] = notify_text(
-                        f"[模拟交易] {config['account_id']} 状态={result['state']} "
-                        f"本轮虚拟成交={len(result['fills'])} 时间={result['observed_at']}"
+                        format_paper_event(config["account_id"], result["state"],
+                                           len(result["fills"]), result["observed_at"])
                     )
                 previous_state = result["state"]
                 save_report(args.output / "latest.json", result)

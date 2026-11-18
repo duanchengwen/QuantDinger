@@ -438,6 +438,7 @@ def test_pg_proposal_from_proven_scheduled_run_is_atomic_review_only(dedicated_d
     from app.ashare import strategy_proposals
     from app.ashare.broker import SHANGHAI
     from app.ashare.schema import MIGRATIONS
+    from app.ashare.strategy_template import save_template
     from app.ashare.strategy_versions import PROPOSAL_REQUEST_PREFIX, StrategyVersions
     from app.ashare.web_store import WebStore
 
@@ -476,6 +477,27 @@ def test_pg_proposal_from_proven_scheduled_run_is_atomic_review_only(dedicated_d
         run = research.run_once(adapter, Themes(), News())
         assert run['status'] == 'completed' and adapter.calls == 1
         monkeypatch.setattr(r.DeepSeekAdapter, 'complete', lambda *_: pytest.fail('model call during proposal'))
+
+        web = WebStore(connection, 'user_1')
+        assert strategy_proposals.propose_saved(connection, 'user_1', 'paper')['status'] == 'inactive_template'
+        assert strategy_proposals.propose_and_notify(
+            connection, json.dumps(_proposal_template('user_2')).encode(), scope=('user_1', 'paper'),
+        ) == {'status': 'invalid_template'}
+        selected = {'enabled': True, 'symbol_scope': 'selected', 'symbols': ['sz.000001'],
+                    'trigger_price': '12.10', 'limit_price': '12', 'max_cash': '1250'}
+        save_template(web, 0, selected, 1)
+        assert strategy_proposals.propose_saved(connection, 'user_1', 'paper')['status'] == 'no_eligible_template_match'
+        save_template(web, 1, {**selected, 'symbols': [SYMBOL]}, 1)
+        web.save_settings(['sz.000001'], 5)
+        assert strategy_proposals.propose_saved(connection, 'user_1', 'paper')['status'] == 'no_eligible_template_match'
+        web.save_settings([SYMBOL, 'sz.000001'], 5)
+        with connection, connection.cursor() as cursor:
+            cursor.execute("""UPDATE qd_ashare_accounts SET fee_policy=fee_policy || '{"minimum_commission":"75"}'
+                WHERE tenant_id='user_1' AND account_id='paper'""")
+        assert strategy_proposals.propose_saved(connection, 'user_1', 'paper')['status'] == 'no_eligible_template_match'
+        with connection, connection.cursor() as cursor:
+            cursor.execute("""UPDATE qd_ashare_accounts SET fee_policy=fee_policy || '{"minimum_commission":"5"}'
+                WHERE tenant_id='user_1' AND account_id='paper'""")
 
         ineligible = _proposal_template()
         ineligible['rules'].pop()
@@ -527,8 +549,9 @@ def test_pg_proposal_from_proven_scheduled_run_is_atomic_review_only(dedicated_d
 
 
 @pytest.mark.parametrize('delivery', ['ack', 'timeout', 'crash_after_claim', 'crash_before_claim'])
+@pytest.mark.parametrize('source', ['file', 'page'])
 def test_pg_scheduler_runs_model_once_and_recovers_draft_notice_safely(
-        dedicated_database, monkeypatch, tmp_path, capsys, delivery):
+        dedicated_database, monkeypatch, tmp_path, capsys, delivery, source):
     import builtins
     from contextlib import closing, redirect_stdout
     import importlib.util
@@ -539,6 +562,8 @@ def test_pg_scheduler_runs_model_once_and_recovers_draft_notice_safely(
     from psycopg2 import sql
     from app.ashare import news, notifications, schema, strategy_proposals
     from app.ashare.broker import SHANGHAI
+    from app.ashare.strategy_template import save_template
+    from app.ashare.strategy_versions import config_hash
     from app.ashare.web_store import WebStore
 
     ops_dir = Path(__file__).resolve().parents[3] / 'scripts' / 'ops'
@@ -625,8 +650,16 @@ def test_pg_scheduler_runs_model_once_and_recovers_draft_notice_safely(
         monkeypatch.setattr(jobs, 'cleanup_container', lambda _: True)
         monkeypatch.setattr(jobs.subprocess, 'run', container)
         (tmp_path / 'deployment.json').write_text('{"project":"proposal-fixture"}')
-        template = tmp_path / 'owner-only-template.json'
-        jobs.ops.private_write(template, json.dumps(_proposal_template()))
+        if source == 'file':
+            template = tmp_path / 'owner-only-template.json'
+            jobs.ops.private_write(template, json.dumps(_proposal_template()))
+            work_options = {'proposal_template': template}
+        else:
+            page = save_template(web, 0, {
+                'enabled': True, 'symbol_scope': 'watched', 'symbols': [],
+                'trigger_price': '12.10', 'limit_price': '12', 'max_cash': '1250',
+            }, 1)
+            work_options = {'tenant_id': 'user_1'}
 
         assert jobs.run_job(tmp_path, 'request', tenant_id='user_1', daily=True) == 0
         queued = json.loads(capsys.readouterr().out)
@@ -637,17 +670,17 @@ def test_pg_scheduler_runs_model_once_and_recovers_draft_notice_safely(
 
             with monkeypatch.context() as crash:
                 crash.setattr(strategy_proposals, 'send_strategy_review_notice', interrupt)
-                assert jobs.run_job(tmp_path, 'work', proposal_template=template) == 1
+                assert jobs.run_job(tmp_path, 'work', **work_options) == 1
             assert not attempts
         elif delivery == 'crash_after_claim':
-            assert jobs.run_job(tmp_path, 'work', proposal_template=template) == 1
+            assert jobs.run_job(tmp_path, 'work', **work_options) == 1
         else:
-            assert jobs.run_job(tmp_path, 'work', proposal_template=template) == 0
+            assert jobs.run_job(tmp_path, 'work', **work_options) == 0
             work = json.loads(capsys.readouterr().out)
             assert work['status'] == 'completed' and work['id'] == queued['id']
             assert work['proposal']['status'] == 'draft_created'
         capsys.readouterr()
-        assert jobs.run_job(tmp_path, 'work', proposal_template=template) == 0
+        assert jobs.run_job(tmp_path, 'work', **work_options) == 0
         saved = jobs.load_job_status(tmp_path)['jobs']['work']
         assert len(attempts) == adapter.calls == 1
         expected_notice = 'unknown' if delivery in ('timeout', 'crash_after_claim') else 'webhook_acknowledged'
@@ -666,6 +699,23 @@ def test_pg_scheduler_runs_model_once_and_recovers_draft_notice_safely(
             if delivery != 'crash_after_claim':
                 events.append('strategy_review_notice_result')
             assert [row[0] for row in cursor.fetchall()] == events
+            if source == 'page':
+                cursor.execute("SELECT config FROM qd_ashare_strategy_versions WHERE id=%s", (attempts[0],))
+                config = cursor.fetchone()[0]
+                assert config['symbol'] == SYMBOL and config['quantity'] == 100
+                assert config['threshold'] == '12.10' and config['max_cash'] == '1250.00'
+                assert config['research_reference']['run_id'] == queued['id']
+                cursor.execute("SELECT details FROM qd_ashare_audit WHERE event=%s", (strategy_proposals.PROPOSED_EVENT,))
+                proof = cursor.fetchone()[0]
+                assert proof['origin'] == 'scheduled_research_saved_template' and proof['template_owner'] == 1
+                assert proof['template_revision'] == page['revision']
+                assert proof['template_sha256'] == config_hash(page['template'])
+        if source == 'page':
+            other_mode = strategy_proposals.propose_and_notify(
+                owner, json.dumps(_proposal_template()).encode(), scope=('user_1', 'paper'),
+            )
+            assert other_mode == {'status': 'already_proposed', 'notice': expected_notice, 'version_id': attempts[0]}
+            assert len(attempts) == adapter.calls == 1
 
 
 @pytest.mark.parametrize('mode', ['available', 'future', 'wrong_pdf'])

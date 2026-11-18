@@ -110,12 +110,14 @@ def test_state_changes_notify_without_using_global_environment_credentials(accou
     monkeypatch.setenv("FEISHU_WEBHOOK_URL", "https://open.feishu.cn/open-apis/bot/v2/hook/other-user")
     sent = []
     def notification(text, **credentials):
-        sent.append(credentials)
+        sent.append((text, credentials))
         return {"status": "disabled"}
     worker = ManagedWorker(connection, path, fetcher=lambda *a, **k: [quote(instant())], notifier=notification)
     worker.process_account(store.tenant_id, now=instant())
     worker.process_account(store.tenant_id, now=instant(second=1))
-    assert sent == [{"webhook_url": "", "signing_secret": ""}]
+    text, credentials = sent[0]
+    assert len(sent) == 1 and credentials == {"webhook_url": "", "signing_secret": ""}
+    assert "观察时间：2026-11-17 10:00:00（北京时间）" in text
     assert store.state()["worker"]["state"] == "awaiting_review"
 
 
@@ -133,6 +135,7 @@ def test_new_daily_report_sends_ledger_summary_once_without_retrying_unknown_del
     assert len(sent) == 1
     text, credentials = sent[0]
     assert "[模拟交易日报]" in text
+    assert "生成时间：2026-11-17 16:00:00（北京时间）" in text
     assert "期末现金：10000.00" in text
     assert "当日成交：0 笔" in text
     assert "账本对账：通过" in text

@@ -89,12 +89,18 @@ def test_strategy_card_button_is_only_a_navigation_link(monkeypatch):
         captured.update(json.loads(kwargs["data"]))
         return Response()
     monkeypatch.setattr(requests.Session, "post", post)
-    version = {"id": "a"*32, "config": {"symbol": "sh.600000", "quantity": 100,
+    version = {"id": "a"*32, "created_at": "2026-11-18T16:05:13+00:00",
+               "config": {"symbol": "sh.600000", "quantity": 100,
                                           "threshold": "10.00", "limit_price": "10.00", "max_cash": "1020.00"}}
     link = "https://paper.example.test/#/ashare-paper?strategy_version=" + version["id"]
     assert notify_strategy_card(version, link, webhook_url="https://open.feishu.cn/open-apis/bot/v2/hook/test-token",
                                 signing_secret="fixture") == {"status": "sent"}
     assert captured["msg_type"] == "interactive" and captured["sign"]
+    text = captured["card"]["elements"][0]["text"]["content"]
+    for value in ("2026-11-19 00:05:13（北京时间）", "sh.600000", "100 股", "触发价 10.00",
+                  "限价 10.00", "含费上限：1020.00", "人工批准", "单独启用自动模拟委托"):
+        assert value in text
+    assert version["id"] not in text
     button, = captured["card"]["elements"][1]["actions"]
     assert button["url"] == link and "value" not in button
 

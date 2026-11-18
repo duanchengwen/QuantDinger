@@ -17,7 +17,7 @@ import threading
 import psycopg2
 
 from app.ashare.calendar_rules import market_session
-from app.ashare.daily_notification import daily_feishu_status, daily_notification_summary
+from app.ashare.daily_notification import daily_feishu_status, daily_notification_summary, format_paper_event
 from app.ashare.market import fetch_quotes
 from app.ashare.notifications import notify_text
 from app.ashare.operations import (
@@ -154,11 +154,7 @@ class ManagedWorker:
                         record_daily_feishu_audit(self.connection, tenant_id, account_id, DAILY_FEISHU_ATTEMPT, attempt)
                         delivery = attempt
                 else:
-                    message = (
-                        f"[模拟交易] {account_id} 状态={worker['state']} "
-                        f"本轮虚拟成交={len(worker['fills'])} 时间={worker['observed_at']} "
-                        f"新增模拟日报={len(reports)}"
-                    )
+                    message = format_paper_event(account_id, worker["state"], len(worker["fills"]), worker["observed_at"])
                 credentials = store.notification_credentials()
                 notification = self.notifier(
                     message,

@@ -16,7 +16,7 @@ from urllib.parse import urlsplit
 
 import requests
 
-from app.ashare.daily_notification import daily_feishu_status
+from app.ashare.daily_notification import beijing_time, daily_feishu_status
 
 _WEBHOOK = re.compile(r"https://open\.feishu\.cn/open-apis/bot/v2/hook/[A-Za-z0-9-]{1,160}\Z")
 
@@ -37,11 +37,11 @@ def notify_text(text: str, *, webhook_url: str | None = None, signing_secret: st
 def notify_strategy_card(version, url, *, webhook_url, signing_secret):
     config = version["config"]
     lines = [
-        f"标的 {config['symbol']} · {config['quantity']} 股",
+        f"生成时间：{beijing_time(version.get('created_at'))}",
+        f"标的：{config['symbol']} · {config['quantity']} 股",
         f"触发价 {config['threshold']} 元 · 限价 {config['limit_price']} 元",
-        f"含费上限 {config['max_cash']} 元",
-        f"版本 {version['id']}",
-        "登录后审核此版本。批准后仍需单独启用自动模拟委托。",
+        f"含费上限：{config['max_cash']} 元",
+        "登录后人工批准此版本，再单独启用自动模拟委托。",
     ]
     payload = {"msg_type": "interactive", "card": {
         "header": {"title": {"tag": "plain_text", "content": "模拟交易 · 策略待审"}},

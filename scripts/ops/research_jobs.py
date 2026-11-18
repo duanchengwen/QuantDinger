@@ -31,6 +31,7 @@ MAX_EXCERPT_BYTES = 1024 * 1024
 MAX_EXCERPT_WIRE_BYTES = 4 * ((MAX_EXCERPT_BYTES + 2) // 3)
 MAX_PROPOSAL_BYTES = 16_384
 MAX_PROPOSAL_WIRE_BYTES = 4 * ((MAX_PROPOSAL_BYTES + 2) // 3)
+PROPOSAL_TENANT = r'user_[1-9][0-9]{0,18}'
 EXCERPT_DERIVATION_SECONDS = 120
 CLEANUP_MARKER = '.research-job-cleanup-unknown.json'
 STATUS_NAME = 'research-job-status.json'
@@ -57,6 +58,7 @@ CONTAINER_SCRIPT = (
     'SAFE_RESEARCH_ERRORS = frozenset(' + repr(sorted(SAFE_RESEARCH_ERRORS)) + ')\n'
     f'MAX_EXCERPT_WIRE_BYTES = {MAX_EXCERPT_WIRE_BYTES}\n'
     f'MAX_PROPOSAL_WIRE_BYTES = {MAX_PROPOSAL_WIRE_BYTES}\n'
+    f'PROPOSAL_TENANT = {PROPOSAL_TENANT!r}\n'
 ) + r'''
 import base64
 import json
@@ -84,6 +86,15 @@ try:
         fields |= {'excerpt', 'excerpt_sha256'}
     if job == 'work' and 'proposal_template' in payload:
         fields.add('proposal_template')
+    scope = None
+    if job == 'work' and 'proposal_scope' in payload:
+        fields.add('proposal_scope')
+        values = payload['proposal_scope']
+        if (not isinstance(values, list) or len(values) != 2 or not isinstance(values[0], str)
+                or not re.fullmatch(PROPOSAL_TENANT, values[0]) or int(values[0][5:]) > 2**63 - 1
+                or values[1] != 'paper'):
+            raise ValueError()
+        scope = tuple(values)
     if set(payload) != fields:
         raise ValueError()
     if job == 'request':
@@ -123,17 +134,19 @@ try:
             if run:
                 result['id'] = run['id']
                 attach_run_error(result, run)
-            if 'proposal_template' in payload and result['status'] in ('completed', 'idle'):
+            if (scope is not None or 'proposal_template' in payload) and result['status'] in ('completed', 'idle'):
                 from app.ashare.strategy_proposals import propose_and_notify
                 try:
-                    encoded = payload['proposal_template']
-                    if not isinstance(encoded, str) or len(encoded) > MAX_PROPOSAL_WIRE_BYTES:
-                        raise ValueError()
-                    template = base64.b64decode(encoded, validate=True)
+                    template = None
+                    if 'proposal_template' in payload:
+                        encoded = payload['proposal_template']
+                        if not isinstance(encoded, str) or len(encoded) > MAX_PROPOSAL_WIRE_BYTES:
+                            raise ValueError()
+                        template = base64.b64decode(encoded, validate=True)
                 except (ValueError, TypeError):
                     result['proposal'] = {'status': 'invalid_template'}
                 else:
-                    result['proposal'] = propose_and_notify(connection, template)
+                    result['proposal'] = propose_and_notify(connection, template, scope=scope)
         else:
             from app.ashare.research import ResearchStore, ResearchError
             safe_exception = lambda error: str(error) if isinstance(error, ResearchError) and str(error) in SAFE_RESEARCH_ERRORS else 'research_job_failed'
@@ -226,6 +239,13 @@ def _request(tenant_id, account_id, idempotency_key, daily):
         raise ValueError('invalid_explicit_research_account_or_key')
     return {'job': 'request', 'tenant_id': tenant_id, 'account_id': account_id,
             'idempotency_key': idempotency_key, 'daily': daily}
+
+
+def _proposal_scope(tenant_id, account_id):
+    if (not isinstance(tenant_id, str) or not re.fullmatch(PROPOSAL_TENANT, tenant_id)
+            or int(tenant_id[5:]) > 2**63 - 1 or account_id != 'paper'):
+        return None
+    return [tenant_id, account_id]
 
 
 def _proposal_summary(proposal, research_status):
@@ -347,6 +367,11 @@ def run_job(state, job, *, tenant_id=None, account_id='paper', idempotency_key=N
     if job not in TIMEOUTS or (proposal_template is not None and job != 'work'):
         raise ValueError('invalid_job')
     payload = _request(tenant_id, account_id, idempotency_key, daily) if job == 'request' else {'job': job}
+    if job == 'work' and (tenant_id is not None or account_id != 'paper'):
+        scope = _proposal_scope(tenant_id, account_id)
+        if scope is None:
+            raise ValueError('invalid_proposal_scope')
+        payload['proposal_scope'] = scope
     if excerpt_dir is not None:
         if job != 'work' or excerpt is not None or excerpt_sha256 is not None:
             raise ValueError('invalid_news_excerpt_evidence')
@@ -374,6 +399,7 @@ def run_job(state, job, *, tenant_id=None, account_id='paper', idempotency_key=N
                 payload['proposal_template'] = _read_proposal_template(proposal_template)
             except (ValueError, OSError):
                 invalid_proposal_template = True
+                payload.pop('proposal_scope', None)
         metadata = json.loads((state / 'deployment.json').read_text())
         ops.check_project(metadata['project'])
         container = 'quantdinger-research-' + job + '-' + uuid.uuid4().hex
@@ -403,6 +429,7 @@ def run_job(state, job, *, tenant_id=None, account_id='paper', idempotency_key=N
 def templates(state, output_dir, tenant_id, account_id, *, excerpt_dir=None, proposal_template=None):
     """Write inert unit files only; explicit account authorization is supplied by caller."""
     _request(tenant_id, account_id, None, True)
+    owner_scope = _proposal_scope(tenant_id, account_id)
     project = json.loads((state / 'deployment.json').read_text())['project']
     ops.check_project(project)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -414,7 +441,9 @@ def templates(state, output_dir, tenant_id, account_id, *, excerpt_dir=None, pro
     for job, timeout in TIMEOUTS.items():
         unit = 'quantdinger-research-' + job + '-' + project
         args = [sys.executable, Path(__file__).resolve(), '--state-dir', state, job]
-        if job == 'request': args += ['--tenant-id', tenant_id, '--account-id', account_id, '--daily']
+        if job == 'request' or (job == 'work' and owner_scope):
+            args += ['--tenant-id', tenant_id, '--account-id', account_id]
+        if job == 'request': args += ['--daily']
         if job == 'work' and excerpt_dir is not None:
             args += ['--excerpt-dir', excerpt_dir]
         if job == 'work' and proposal_template is not None:
@@ -482,7 +511,8 @@ def main(argv=None):
             parser.error('templates requires --output-dir and --tenant-id')
         return templates(state, args.output_dir.expanduser().resolve(), args.tenant_id, args.account_id,
                          excerpt_dir=excerpt_dir, proposal_template=proposal_template)
-    if args.output_dir or (args.command != 'request' and (args.tenant_id or args.idempotency_key or args.daily)):
+    if (args.output_dir or (args.command != 'request' and (args.idempotency_key or args.daily))
+            or (args.command == 'news' and (args.tenant_id or args.account_id != 'paper'))):
         parser.error('Unexpected job options')
     return run_job(state, args.command, tenant_id=args.tenant_id, account_id=args.account_id,
                    idempotency_key=args.idempotency_key, daily=args.daily,

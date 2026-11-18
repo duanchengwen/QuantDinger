@@ -8,6 +8,20 @@ from psycopg2.extras import RealDictCursor
 from app.ashare.broker import PaperBroker, supported
 
 
+def _research_preferences(value):
+    if not isinstance(value, dict) or set(value) - {"topics", "follow_current_events", "custom_topics"}:
+        raise ValueError("invalid_research_preferences")
+    topics = value.get("topics", [])
+    follow_events = value.get("follow_current_events", False)
+    custom = value.get("custom_topics", "")
+    if (not isinstance(topics, list) or len(topics) > 4
+            or any(topic not in ("ai", "robotics", "new_energy", "semiconductors") for topic in topics)
+            or len(set(topics)) != len(topics) or type(follow_events) is not bool
+            or not isinstance(custom, str) or len(custom) > 240):
+        raise ValueError("invalid_research_preferences")
+    return {"topics": topics, "follow_current_events": follow_events, "custom_topics": custom.strip()}
+
+
 class WebStore:
     def __init__(self, connection, tenant_id, account_id="paper"):
         self.connection = connection
@@ -38,28 +52,27 @@ class WebStore:
             raise ValueError("invalid_symbols")
         if type(interval_seconds) is not int or not 2 <= interval_seconds <= 3600:
             raise ValueError("invalid_interval")
-        if research_preferences is None:
-            research_preferences = self.settings().get("research_preferences", {})
-        if not isinstance(research_preferences, dict) or set(research_preferences) - {"topics", "follow_current_events", "custom_topics"}:
-            raise ValueError("invalid_research_preferences")
-        topics = research_preferences.get("topics", [])
-        follow_events = research_preferences.get("follow_current_events", False)
-        custom = research_preferences.get("custom_topics", "")
-        if (not isinstance(topics, list) or len(topics) > 4
-                or any(topic not in ("ai", "robotics", "new_energy", "semiconductors") for topic in topics)
-                or len(set(topics)) != len(topics) or type(follow_events) is not bool
-                or not isinstance(custom, str) or len(custom) > 240):
-            raise ValueError("invalid_research_preferences")
-        settings = {"symbols": symbols, "interval_seconds": interval_seconds,
-                    "research_preferences": {"topics": topics, "follow_current_events": follow_events,
-                                             "custom_topics": custom.strip()}}
-        snapshot = self.broker.snapshot(history_limit=200)
-        active = {row["symbol"] for row in snapshot["positions"]}
-        active.update(row["symbol"] for row in snapshot["orders"] if row["status"] in ("open", "partial"))
-        if active - set(symbols):
-            raise ValueError("cannot_remove_active_symbols")
-        with self.connection, self.connection.cursor() as cursor:
-            cursor.execute("UPDATE qd_ashare_web SET settings=%s::jsonb,updated_at=now() WHERE tenant_id=%s AND account_id=%s", (json.dumps(settings), *self.key))
+        with self.connection, self.connection.cursor(cursor_factory=RealDictCursor) as cursor:
+            # Match strategy generation and broker mutations: lock the ledger before the web row.
+            self.broker._account(cursor)
+            cursor.execute("SELECT settings FROM qd_ashare_web WHERE tenant_id=%s AND account_id=%s FOR UPDATE",
+                           self.key)
+            row = cursor.fetchone()
+            if row is None:
+                raise ValueError("paper_account_required")
+            if research_preferences is None:
+                research_preferences = row["settings"].get("research_preferences", {})
+            settings = {"symbols": symbols, "interval_seconds": interval_seconds,
+                        "research_preferences": _research_preferences(research_preferences)}
+            cursor.execute("""SELECT EXISTS (SELECT 1 FROM qd_ashare_lots
+                WHERE tenant_id=%s AND account_id=%s AND quantity>0 AND symbol<>ALL(%s))
+                OR EXISTS (SELECT 1 FROM qd_ashare_orders
+                WHERE tenant_id=%s AND account_id=%s AND status IN ('open','partial') AND symbol<>ALL(%s)) AS active""",
+                           (*self.key, symbols, *self.key, symbols))
+            if cursor.fetchone()["active"]:
+                raise ValueError("cannot_remove_active_symbols")
+            cursor.execute("""UPDATE qd_ashare_web SET settings=settings || %s::jsonb,updated_at=now()
+                WHERE tenant_id=%s AND account_id=%s""", (json.dumps(settings), *self.key))
         return settings
 
     def review(self, rule):

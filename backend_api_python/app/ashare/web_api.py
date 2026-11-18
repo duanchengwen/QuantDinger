@@ -14,6 +14,7 @@ from app.ashare.notifications import send_strategy_review_notice
 from app.ashare.runtime import SHANGHAI, reviewed_rules
 from app.ashare.web_store import WebStore
 from app.ashare.schema import get_database_url
+from app.ashare.strategy_template import StrategyTemplateConflict, save_template, saved_template
 from app.ashare.strategy_versions import StrategyVersions
 
 blueprint = Blueprint("ashare_paper", __name__, url_prefix="/api/ashare-paper")
@@ -36,6 +37,8 @@ def endpoint(write=False):
                     store = WebStore(connection, "user_" + str(g.user_id))
                     result = function(store, *args, **kwargs)
                     return jsonify(code=1, msg="success", data=serialize(result))
+            except StrategyTemplateConflict as exc:
+                return jsonify(code=0, msg=str(exc), data=None), 409
             except (ValueError, TypeError, KeyError, InvalidOperation) as exc:
                 return jsonify(code=0, msg=str(exc)[:180], data=None), 400
             except psycopg2.Error:
@@ -321,6 +324,22 @@ def review_batch(store):
     snapshot = store.state()
     validated = [validated_review(store, rule, now, g.user_id, snapshot) for rule in rules]
     return store.review_many(validated)
+
+
+@blueprint.get("/strategy-template")
+@endpoint()
+def strategy_template(store):
+    query_fields(set())
+    store.connection.set_session(readonly=True)
+    return saved_template(store.settings())
+
+
+@blueprint.put("/strategy-template")
+@endpoint(write=True)
+def update_strategy_template(store):
+    query_fields(set())
+    data = body({"expected_revision", "template"})
+    return save_template(store, data.get("expected_revision"), data.get("template"), g.user_id)
 
 
 @blueprint.get("/strategy-versions")

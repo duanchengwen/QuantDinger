@@ -1,5 +1,11 @@
 <template>
   <section class="strategy-panel">
+    <strategy-template
+      :active="active"
+      :account-ready="accountReady"
+      :can-write="canWrite"
+      :symbols="symbols"
+      :symbol-label="symbolLabel" />
     <p>{{ t('strategyVersionHelp') }}</p>
     <a-alert v-if="error" type="error" :message="error" />
     <a-button :disabled="busy" :loading="loading" @click="refresh">{{ t('refresh') }}</a-button>
@@ -141,10 +147,13 @@ const versionPath = '/strategy-versions'
 const newKey = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), n => n.toString(16).padStart(2, '0')).join('')
 
 export default {
+  components: { StrategyTemplate: () => import('./strategy-template.vue') },
   props: {
     active: { type: Boolean, required: true },
+    accountReady: { type: Boolean, required: true },
     canWrite: { type: Boolean, required: true },
     symbols: { type: Array, required: true },
+    symbolLabel: { type: Function, required: true },
     preferredId: { type: String, default: '' },
     researchSeed: { type: Object, default: null }
   },
