@@ -66,7 +66,7 @@
     {
       "id": "approved_strategy_auto_paper",
       "status": "deployed_pending_natural_order",
-      "acceptance": "The locally deployed worker supports one simulated buy per immutable version after explicit human approval and activation. It checks the exact hash, fee-inclusive reserve, fresh accepted quote and current human-reviewed rules. Revocation cancels the unfilled remainder atomically. Accounts, ledger and private model settings were preserved, and no strategy was active after rollout. Actual user activation and a naturally triggered order remain pending."
+      "acceptance": "The worker supports one simulated buy per immutable version after explicit human approval and activation. Draft creation, approval and activation precheck the fee-inclusive cap. Submission rechecks the exact hash, reserve, available cash, fresh accepted quote and current human-reviewed rules. Revocation cancels the unfilled remainder atomically. Actual user activation and a naturally triggered order remain pending."
     },
     {
       "id": "strategy_optimization",

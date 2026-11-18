@@ -57,8 +57,9 @@ class PaperBroker:
     def _cursor(self):
         return self.connection.cursor(cursor_factory=RealDictCursor)
 
-    def _account(self, cursor):
-        cursor.execute("SELECT * FROM qd_ashare_accounts WHERE tenant_id=%s AND account_id=%s FOR UPDATE", self.key)
+    def _account(self, cursor, *, lock=True):
+        query = "SELECT * FROM qd_ashare_accounts WHERE tenant_id=%s AND account_id=%s"
+        cursor.execute(query + (" FOR UPDATE" if lock else ""), self.key)
         account = cursor.fetchone()
         if account is None:
             raise ValueError("account not initialized")
@@ -74,6 +75,10 @@ class PaperBroker:
         transfer = money(notional * Decimal(self.fees["transfer_rate"]))
         tax = money(notional * Decimal(self.fees["sell_tax_rate"])) if side == "sell" else Decimal("0")
         return commission, transfer, tax
+
+    def _buy_reserve(self, quantity, price):
+        notional = price * quantity
+        return notional + sum(self._costs(notional, "buy"))
 
     def initialize(self, initial_cash: Decimal):
         cash = money(initial_cash)
@@ -118,8 +123,7 @@ class PaperBroker:
             return dict(existing)
         reserve = Decimal("0")
         if side == "buy":
-            notional = price * quantity
-            reserve = notional + sum(self._costs(notional, side))
+            reserve = self._buy_reserve(quantity, price)
             if max_cash is not None and reserve > max_cash:
                 raise ValueError("strategy_cash_cap_exceeded")
             if reserve > account["cash"] - account["reserved_cash"]:

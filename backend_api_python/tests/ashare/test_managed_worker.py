@@ -384,10 +384,15 @@ def test_automatic_order_waits_if_human_review_changes_before_matching(account):
 
 @pytest.mark.parametrize('reason', ['unreviewed', 'previous_day', 'untrusted_reviewer', 'unknown_status', 'stale', 'fees_exceed_cap'])
 def test_managed_strategy_does_not_bypass_rule_quote_or_cash_gates(account, reason):
-    store, _, decide, rules, worker_factory = strategy_fixture(
-        account, cap='1001' if reason == 'fees_exceed_cap' else '1100')
+    store, _, decide, rules, worker_factory = strategy_fixture(account)
     decide('approved')
     decide('activated')
+    if reason == 'fees_exceed_cap':
+        conn = account[0]
+        with conn, conn.cursor() as cursor:
+            cursor.execute("""UPDATE qd_ashare_accounts
+                SET fee_policy=fee_policy || '{"minimum_commission":"200"}'
+                WHERE tenant_id=%s AND account_id=%s""", store.key)
     if reason != 'unreviewed':
         adjustments = {'previous_day': {'trading_day': '2026-11-16'},
                        'untrusted_reviewer': {'reviewed_by': 999}, 'unknown_status': {'suspended': None}}

@@ -405,6 +405,51 @@ def test_strategy_draft_rejects_unsupported_or_unbounded_config(client, config):
     assert call(client, "/strategy-versions", request).status_code == 400
 
 
+def test_strategy_funding_uses_fee_inclusive_cents_and_keeps_balance_advisory(client):
+    from psycopg2.extras import Json
+    from app.ashare.strategy_versions import config_hash, normalize_config
+
+    assert call(client, "/initialize", {"initial_cash": "1000"}).status_code == 200
+    base = "/strategy-versions"
+    request = {"config": _strategy_config(limit_price="10", max_cash="1005.00"), "request_key": "funding-test"}
+    bad = call(client, base, request)
+    assert bad.status_code == 400 and bad.json["msg"] == "strategy_cash_cap_exceeded"
+    config = {**request["config"], "max_cash": "1005.01"}
+    draft = call(client, base, {**request, "config": config}).json["data"]
+    assert draft["funding"] == {"required_cash": "1005.01", "available_cash": "1000.00",
+                                "cap_sufficient": True, "cash_sufficient": False}
+    assert call(client, base, token="other", method="GET").json["data"]["versions"] == []
+    approved = call(client, f"{base}/{draft['id']}/decision", {
+        "config_sha256": draft["config_sha256"], "decision": "approved", "confirmed": True,
+    })
+    assert approved.json["data"]["status"] == "approved"
+    assert approved.json["data"]["execution_allowed"] is False
+    assert call(client, "/state", method="GET").json["data"]["account"]["reserved_cash"] == "0.00"
+
+    # Historical drafts remain readable, but a cap that cannot cover fees cannot be approved.
+    legacy = normalize_config(request["config"])
+    legacy_id, digest = uuid.uuid4().hex, config_hash(legacy)
+    with psycopg2.connect(os.environ["TEST_ASHARE_DATABASE_URL"]) as conn, conn.cursor() as cur:
+        cur.execute("""INSERT INTO qd_ashare_strategy_versions
+            (tenant_id,account_id,id,request_key,config,config_sha256,created_by)
+            VALUES (%s,'paper',%s,'legacy-funding',%s,%s,%s)""",
+                    (f"user_{client.test_user}", legacy_id, Json(legacy), digest, client.test_user))
+    versions = call(client, base, method="GET").json["data"]["versions"]
+    old = next(item for item in versions if item["id"] == legacy_id)
+    assert old["config_sha256"] == digest and old["funding"]["cap_sufficient"] is False
+    blocked = call(client, f"{base}/{legacy_id}/decision", {
+        "config_sha256": digest, "decision": "approved", "confirmed": True,
+    })
+    assert blocked.status_code == 400 and blocked.json["msg"] == "strategy_cash_cap_exceeded"
+    with psycopg2.connect(os.environ["TEST_ASHARE_DATABASE_URL"]) as conn, conn.cursor() as cur:
+        cur.execute("""UPDATE qd_ashare_accounts SET fee_policy=fee_policy || '{"minimum_commission":"6"}'
+            WHERE tenant_id=%s AND account_id='paper'""", (f"user_{client.test_user}",))
+    path = f"{base}/{draft['id']}/decision"
+    confirmation = {"config_sha256": draft["config_sha256"], "confirmed": True}
+    assert call(client, path, {**confirmation, "decision": "activated"}).json["msg"] == "strategy_cash_cap_exceeded"
+    assert call(client, path, {**confirmation, "decision": "revoked"}).json["data"]["status"] == "revoked"
+
+
 def test_concurrent_decisions_approve_only_one_version(client):
     from concurrent.futures import ThreadPoolExecutor
     from threading import Barrier

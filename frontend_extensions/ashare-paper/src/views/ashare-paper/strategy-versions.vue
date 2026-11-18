@@ -51,6 +51,12 @@
         <dt>{{ t('strategyThreshold') }}</dt><dd>{{ selected.config.threshold }}</dd>
         <dt>{{ t('price') }}</dt><dd>{{ selected.config.limit_price }}</dd>
         <dt>{{ t('strategyMaxCash') }}</dt><dd>{{ selected.config.max_cash }}</dd>
+        <template v-if="selected.funding">
+          <dt>{{ t('strategyRequiredCash') }}</dt><dd>{{ selected.funding.required_cash }}</dd>
+          <template v-if="!selected.execution_allowed && selected.status !== 'revoked'">
+            <dt>{{ t('strategyAvailableCash') }}</dt><dd>{{ selected.funding.available_cash }}</dd>
+          </template>
+        </template>
         <template v-if="selected.config.research_reference">
           <dt>{{ t('strategyResearchReference') }}</dt><dd><code>{{ selected.config.research_reference.run_id }}</code></dd>
           <dt>{{ t('researchInputHash') }}</dt><dd><code>{{ selected.config.research_reference.input_hash }}</code></dd>
@@ -67,15 +73,21 @@
           <dt>{{ t('strategyActivatedAt') }}</dt><dd>{{ formatTime(selected.activated_at) }}</dd>
         </template>
       </dl>
+      <a-alert v-if="capInsufficient" type="warning" show-icon :message="t('strategyCapInsufficient')" />
+      <a-alert
+        v-else-if="selected.funding && !selected.funding.cash_sufficient && !selected.execution_allowed && selected.status !== 'revoked'"
+        type="warning"
+        show-icon
+        :message="t('strategyCashInsufficient')" />
       <a-button
         v-if="canWrite && selected.status === 'draft'"
         type="primary"
-        :disabled="loading || busy"
+        :disabled="loading || busy || capInsufficient"
         @click="confirmDecision(selected, 'approved')">{{ t('strategyApprove') }}</a-button>
       <a-button
         v-if="canWrite && selected.status === 'approved' && !selected.execution_allowed"
         type="primary"
-        :disabled="loading || busy"
+        :disabled="loading || busy || capInsufficient"
         @click="confirmDecision(selected, 'activated')">{{ t('strategyActivate') }}</a-button>
       <a-button
         v-if="canWrite && selected.status === 'approved'"
@@ -113,6 +125,11 @@ export default {
   },
   computed: {
     selected () { return this.versions.find(item => item.id === this.selectedId) },
+    capInsufficient () {
+      const version = this.selected
+      return Boolean(version && version.funding && !version.funding.cap_sufficient &&
+        !version.execution_allowed && version.status !== 'revoked')
+    },
     canSave () {
       const { symbol, quantity, threshold, limit_price: price, max_cash: cash } = this.draft
       return this.canWrite && !this.loading && !this.busy && this.symbols.includes(symbol) &&
@@ -148,7 +165,8 @@ export default {
         another_strategy_version_approved: 'strategyAnotherApproved',
         invalid_strategy_state_transition: 'strategyVersionChanged',
         strategy_symbol_not_watched: 'strategySymbolNotWatched',
-        strategy_research_unavailable: 'strategyResearchUnavailable'
+        strategy_research_unavailable: 'strategyResearchUnavailable',
+        strategy_cash_cap_exceeded: 'strategyCapInsufficient'
       }
       const code = (error.response && error.response.data && error.response.data.msg) || error.message
       return this.t(keys[code] || 'strategyOperationFailed')
@@ -171,7 +189,7 @@ export default {
     storeResult (version) {
       const index = this.versions.findIndex(item => item.id === version.id)
       if (index === -1) this.versions.unshift(version)
-      else this.versions.splice(index, 1, version)
+      else this.versions.splice(index, 1, { ...this.versions[index], ...version })
       this.selectedId = version.id
     },
     async create () {

@@ -136,13 +136,30 @@ class StrategyVersions:
                 or not any(candidate['symbol'] == config['symbol'] for candidate in run['candidates'])):
             raise ValueError('strategy_research_unavailable')
 
+    def _funding(self, config, account):
+        required = self.broker._buy_reserve(config['quantity'], Decimal(config['limit_price']))
+        available = account['cash'] - account['reserved_cash']
+        return {'required_cash': required, 'available_cash': available,
+                'cap_sufficient': required <= Decimal(config['max_cash']), 'cash_sufficient': required <= available}
+
+    def _validate_cap(self, config, account):
+        funding = self._funding(config, account)
+        if not funding['cap_sufficient']:
+            raise ValueError('strategy_cash_cap_exceeded')
+        return funding
+
     def list(self, limit):
         if type(limit) is not int or not 1 <= limit <= 50:
             raise ValueError('invalid_strategy_limit')
         with self.connection, self.connection.cursor(cursor_factory=RealDictCursor) as cursor:
             cursor.execute(SELECT_VERSION + ''' ORDER BY (a.decided_at IS NOT NULL AND r.decided_at IS NULL) DESC,
                 v.created_at DESC, v.id DESC LIMIT %s''', (*self.key, limit))
-            return {'versions': [self._view(row) for row in cursor.fetchall()]}
+            versions = [self._view(row) for row in cursor.fetchall()]
+            if versions:
+                account = self.broker._account(cursor, lock=False)
+                for version in versions:
+                    version['funding'] = self._funding(version['config'], account)
+            return {'versions': versions}
 
     def create(self, config, request_key, actor):
         self._operator(actor)
@@ -151,22 +168,24 @@ class StrategyVersions:
         config = normalize_config(config)
         digest = config_hash(config)
         with self.connection, self.connection.cursor(cursor_factory=RealDictCursor) as cursor:
-            _, web = self._lock_account(cursor)
+            account, web = self._lock_account(cursor)
             cursor.execute(SELECT_VERSION + ' AND v.request_key=%s', (*self.key, request_key))
             existing = cursor.fetchone()
             if existing is not None:
                 version = self._view(existing)
                 if version['config_sha256'] != digest:
                     raise ValueError('strategy_request_key_conflict')
+                version['funding'] = self._funding(config, account)
                 return version
             if config['symbol'] not in web['settings'].get('symbols', []):
                 raise ValueError('strategy_symbol_not_watched')
+            funding = self._validate_cap(config, account)
             self._verify_research(cursor, config)
             version_id = uuid.uuid4().hex
             cursor.execute("""INSERT INTO qd_ashare_strategy_versions
                 (tenant_id,account_id,id,request_key,config,config_sha256,created_by)
                 VALUES (%s,%s,%s,%s,%s,%s,%s)""", (*self.key, version_id, request_key, Json(config), digest, actor))
-            return self._find(cursor, version_id)
+            return {**self._find(cursor, version_id), 'funding': funding}
 
     def decide(self, version_id, digest, decision, confirmed, actor):
         self._operator(actor)
@@ -177,7 +196,7 @@ class StrategyVersions:
         if decision not in ('approved', 'activated', 'revoked'):
             raise ValueError('invalid_strategy_decision')
         with self.connection, self.connection.cursor(cursor_factory=RealDictCursor) as cursor:
-            _, web = self._lock_account(cursor)
+            account, web = self._lock_account(cursor)
             version = self._find(cursor, version_id)
             if version['config_sha256'] != digest:
                 raise ValueError('strategy_version_hash_mismatch')
@@ -188,6 +207,7 @@ class StrategyVersions:
                     return version
                 if version['config']['symbol'] not in web['settings'].get('symbols', []):
                     raise ValueError('strategy_symbol_not_watched')
+                self._validate_cap(version['config'], account)
                 self._verify_research(cursor, version['config'])
                 cursor.execute("""INSERT INTO qd_ashare_strategy_activations
                     (tenant_id,account_id,version_id,config_sha256,actor_user_id,activated_at)
@@ -200,6 +220,7 @@ class StrategyVersions:
             if decision == 'approved':
                 if version['config']['symbol'] not in web['settings'].get('symbols', []):
                     raise ValueError('strategy_symbol_not_watched')
+                self._validate_cap(version['config'], account)
                 self._verify_research(cursor, version['config'])
                 cursor.execute(SELECT_VERSION + ' AND a.decided_at IS NOT NULL AND r.decided_at IS NULL LIMIT 1', self.key)
                 if cursor.fetchone() is not None:

@@ -101,3 +101,15 @@ test('opening a candidate starts a blank draft and saving attaches only its rese
   assert.deepEqual(calls[0].data.config.research_reference, reference)
   assert.equal(state.selected.status, 'draft')
 })
+
+test('funding preview survives a decision and stops warning after revocation', async () => {
+  const version = { id: 'a'.repeat(32), status: 'approved', config_sha256: 'b'.repeat(64), execution_allowed: false }
+  const funding = { required_cash: '1005.01', available_cash: '1080.00', cap_sufficient: false, cash_sufficient: true }
+  const state = mount(() => ({ ...version, status: 'revoked' }))
+  state.versions = [{ ...version, funding }]
+  state.selectedId = version.id
+  assert.equal(state.capInsufficient, true)
+  await state.decide(version, 'revoked')
+  assert.equal(state.capInsufficient, false)
+  assert.deepEqual(state.selected.funding, funding)
+})

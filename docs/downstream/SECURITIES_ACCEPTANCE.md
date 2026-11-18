@@ -103,3 +103,9 @@ Python 3.11 and 3.12 each passed 509 A-share tests, and the frontend passed 42 t
 Versions linked to research require a reader that understands the optional reference. The rehearsal verified a direct rollback before creation of a linked draft.
 
 The local deployment switched to `13233f4` after the close at 17:01 China time on November 18. All four services were healthy, and the authenticated endpoints preserved the existing research and two daily reports. The served browser files matched the build. Fourteen critical table fingerprints and private model settings were unchanged. The production strategy list remained empty. Evidence is `strategy-reference-production-deployment-20261118.json`.
+
+## Paper strategy cash-cap check
+
+Strategy versions calculate the expected reserve from the paper account's fee policy. In an isolated restore of a real backup, the authenticated endpoint reported a CNY 1,005.01 reserve for 100 shares at a limit price of CNY 10. The draft was rejected below the fee-inclusive cap. Saving a draft with a sufficient cap did not reserve cash. Historical drafts remain readable. Approval, activation and submission recheck the cap against the fee policy in effect at the time. Tests also cover activation and submission blocked after a fee change with revocation still available.
+
+Python 3.11 and 3.12 each passed 510 A-share tests. The frontend passed 43 tests, ESLint and the production build. Isolated evidence is `strategy-funding-upgrade-rehearsal-20261118.json`. Actual user approval and natural intraday execution remain open.
