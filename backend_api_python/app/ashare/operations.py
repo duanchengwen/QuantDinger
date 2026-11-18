@@ -123,6 +123,7 @@ def record_poll(connection, tenant_id, account_id, now, quotes, state, clock_sou
     """Persist bounded observation evidence; sample counts do not prove uptime."""
     day = now.astimezone(SHANGHAI).date()
     ages, timestamps, evidence = [], [], set()
+    ready_quotes = []
     for quote in quotes:
         try:
             stamp = datetime.fromisoformat(quote["exchange_time"])
@@ -132,6 +133,9 @@ def record_poll(connection, tenant_id, account_id, now, quotes, state, clock_sou
             timestamps.append(stamp.isoformat())
             if quote.get("evidence_sha256"):
                 evidence.add(quote["evidence_sha256"])
+                if len(ready_quotes) < 30 and isinstance(quote.get("symbol"), str):
+                    ready_quotes.append({"symbol": quote["symbol"], "exchange_time": stamp.isoformat(),
+                                         "evidence_sha256": quote["evidence_sha256"]})
         except (KeyError, TypeError, ValueError):
             continue
     max_age = max(ages) if ages else None
@@ -139,6 +143,8 @@ def record_poll(connection, tenant_id, account_id, now, quotes, state, clock_sou
     details = {"clock_source": clock_source, "worker_state": state,
                "quote_count": len(quotes), "source_timestamps": timestamps[:30],
                "evidence_sha256": sorted(evidence)[:30]}
+    if clock_source == "wall_clock" and state == "healthy" and ready_quotes:
+        details["last_ready_wall_clock"] = {"observed_at": now.isoformat(), "quotes": ready_quotes}
     with connection, connection.cursor() as cursor:
         cursor.execute("""INSERT INTO qd_ashare_day_observations
             (tenant_id,account_id,trading_day,first_observed_at,last_observed_at,poll_count,
@@ -155,7 +161,8 @@ def record_poll(connection, tenant_id, account_id, now, quotes, state, clock_sou
             ready_polls=qd_ashare_day_observations.ready_polls+EXCLUDED.ready_polls,
             stale_quote_polls=qd_ashare_day_observations.stale_quote_polls+EXCLUDED.stale_quote_polls,
             max_source_age_seconds=GREATEST(qd_ashare_day_observations.max_source_age_seconds,EXCLUDED.max_source_age_seconds),
-            last_details=EXCLUDED.last_details""",
+            last_details=jsonb_strip_nulls(jsonb_build_object('last_ready_wall_clock',
+                qd_ashare_day_observations.last_details->'last_ready_wall_clock')) || EXCLUDED.last_details""",
             (tenant_id, account_id, day, now, now, int(clock_source == "wall_clock"),
              int(clock_source == "controlled_time"), int(state == "failed"), int(state == "healthy"),
              int(stale), max_age, json.dumps(details)))

@@ -3,17 +3,14 @@ from contextlib import closing
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from functools import wraps
-import os
-from urllib.parse import urlsplit
 
 from flask import Blueprint, current_app, g, jsonify, request
 import psycopg2
 
 from app.utils.auth import login_required
 from app.ashare.broker import STRATEGY_ORDER_PREFIX
-from app.ashare.daily_notification import daily_feishu_status
 from app.ashare.market import validate_quote
-from app.ashare.notifications import notify_strategy_card
+from app.ashare.notifications import send_strategy_review_notice
 from app.ashare.runtime import SHANGHAI, reviewed_rules
 from app.ashare.web_store import WebStore
 from app.ashare.schema import get_database_url
@@ -346,20 +343,8 @@ def create_strategy_version(store):
 
 
 def _send_review_notice(store, versions, version):
-    base = os.environ.get("ASHARE_REVIEW_BASE_URL", "").strip().rstrip("/")
-    if not base:
-        return
     try:
-        origin = urlsplit(base)
-        if (origin.scheme != "https" or not origin.hostname or origin.username is not None
-                or origin.path or origin.query or origin.fragment or origin.port == 0):
-            raise ValueError("invalid_strategy_review_origin")
-        credentials = store.notification_credentials()
-        if not credentials["webhook_url"] or not versions.claim_review_notice(version["id"]):
-            return
-        link = f"{base}/#/ashare-paper?strategy_version={version['id']}"
-        result = notify_strategy_card(version, link, **credentials)
-        versions.record_review_notice(version["id"], daily_feishu_status(result))
+        send_strategy_review_notice(store, versions, version)
     except (ValueError, KeyError, psycopg2.Error):
         current_app.logger.warning("Paper strategy review notice unavailable")
 
@@ -370,6 +355,15 @@ def strategy_version(store, version_id):
     query_fields(set())
     store.connection.set_session(readonly=True, isolation_level='REPEATABLE READ')
     return StrategyVersions(store.connection, *store.key).get(version_id)
+
+
+@blueprint.get("/strategy-versions/<version_id>/evaluation")
+@endpoint()
+def strategy_version_evaluation(store, version_id):
+    from app.ashare.strategy_evaluation import evaluate_paper_strategy
+
+    query_fields(set())
+    return evaluate_paper_strategy(store.connection, *store.key, version_id)
 
 
 @blueprint.post("/strategy-versions/<version_id>/decision")

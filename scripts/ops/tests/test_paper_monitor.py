@@ -378,6 +378,25 @@ class MonitorTests(unittest.TestCase):
         value['research_job_status'] = {'status': 'invalid_or_unavailable', 'jobs': {}}
         self.assertIn('research_job_status_invalid_or_unavailable', self.report(value)['issues'])
 
+    def test_uncertain_review_card_and_invalid_template_are_visible(self):
+        value = self.research_payload()
+        work = value['research_job_status']['jobs']['work']
+        work['proposal'] = {'status': 'already_proposed', 'notice': 'unknown', 'version_id': 'a' * 32}
+        report = self.report(value)
+        self.assertIn('research_proposal_notice_unknown', report['issues'])
+        self.assertNotIn('research_work_job_state_unknown', report['issues'])
+        work['proposal']['notice'] = 'unconfigured'
+        report = self.report(value)
+        self.assertIn('research_proposal_notice_unconfigured', report['pending_acceptance'])
+        work['proposal'] = {'status': 'invalid_template'}
+        self.assertIn('research_proposal_invalid_template', self.report(value)['issues'])
+        with tempfile.TemporaryDirectory() as temporary:
+            state = Path(temporary)
+            summary = value['research_job_status']
+            data = {'schema_version': 1, 'updated_at': summary['updated_at'], 'jobs': summary['jobs']}
+            (state / 'research-job-status.json').write_text(json.dumps(data))
+            self.assertEqual(monitor.research_job_status(state)['jobs']['work']['proposal'], work['proposal'])
+
     def test_latest_research_per_account_survives_idle_worker_summary(self):
         value = self.research_payload()
         value['research_schema_present'] = True

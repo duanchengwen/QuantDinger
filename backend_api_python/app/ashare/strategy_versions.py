@@ -18,6 +18,7 @@ RESEARCH_REFERENCE = 'research_reference'
 VERSION_ID = re.compile(r'[a-f0-9]{32}')
 SHA256 = re.compile(r'[a-f0-9]{64}')
 REQUEST_KEY = re.compile(r'[A-Za-z0-9_-]{8,100}')
+PROPOSAL_REQUEST_PREFIX = 'research-proposal-'
 MONEY = re.compile(r'[0-9]{1,9}(?:\.[0-9]{1,2})?')
 SELECT_VERSION = f"""
     SELECT v.id, v.config, v.config_sha256, v.created_at, v.created_by,
@@ -195,9 +196,23 @@ class StrategyVersions:
         with self.connection, self.connection.cursor() as cursor:
             self.broker._audit(cursor, 'strategy_review_notice_result', {'version_id': version_id, 'status': status})
 
+    def review_notice_status(self, version_id):
+        with self.connection, self.connection.cursor() as cursor:
+            cursor.execute("""SELECT event, details->>'status' FROM qd_ashare_audit
+                WHERE tenant_id=%s AND account_id=%s AND details->>'version_id'=%s
+                  AND event IN ('strategy_review_notice_intent','strategy_review_notice_result')
+                ORDER BY id DESC LIMIT 1""", (*self.key, version_id))
+            row = cursor.fetchone()
+        if row is None:
+            return 'not_claimed'
+        if row[0] == 'strategy_review_notice_result' and row[1] in {
+                'webhook_acknowledged', 'disabled', 'rejected', 'failed'}:
+            return row[1]
+        return 'unknown'
+
     def create(self, config, request_key, actor):
         self._operator(actor)
-        if not _matches(REQUEST_KEY, request_key):
+        if not _matches(REQUEST_KEY, request_key) or request_key.startswith(PROPOSAL_REQUEST_PREFIX):
             raise ValueError('invalid_strategy_request_key')
         config = normalize_config(config)
         digest = config_hash(config)
@@ -215,11 +230,15 @@ class StrategyVersions:
                 raise ValueError('strategy_symbol_not_watched')
             funding = self._validate_cap(config, account)
             self._verify_research(cursor, config)
-            version_id = uuid.uuid4().hex
-            cursor.execute("""INSERT INTO qd_ashare_strategy_versions
-                (tenant_id,account_id,id,request_key,config,config_sha256,created_by)
-                VALUES (%s,%s,%s,%s,%s,%s,%s)""", (*self.key, version_id, request_key, Json(config), digest, actor))
-            return {**self._find(cursor, version_id), 'funding': funding}
+            return self._insert_draft(cursor, config, request_key, actor, funding)
+
+    def _insert_draft(self, cursor, config, request_key, actor, funding):
+        version_id = uuid.uuid4().hex
+        cursor.execute("""INSERT INTO qd_ashare_strategy_versions
+            (tenant_id,account_id,id,request_key,config,config_sha256,created_by)
+            VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+                       (*self.key, version_id, request_key, Json(config), config_hash(config), actor))
+        return {**self._find(cursor, version_id), 'funding': funding}
 
     def decide(self, version_id, digest, decision, confirmed, actor):
         self._operator(actor)

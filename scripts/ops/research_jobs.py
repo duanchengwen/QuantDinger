@@ -11,8 +11,10 @@ import ast
 import base64
 import hashlib
 import json
+import os
 import re
 import signal
+import stat
 import subprocess
 import sys
 import uuid
@@ -27,6 +29,8 @@ LOCK_WAIT_SECONDS = 15
 MAX_OUTPUT_BYTES = 16384
 MAX_EXCERPT_BYTES = 1024 * 1024
 MAX_EXCERPT_WIRE_BYTES = 4 * ((MAX_EXCERPT_BYTES + 2) // 3)
+MAX_PROPOSAL_BYTES = 16_384
+MAX_PROPOSAL_WIRE_BYTES = 4 * ((MAX_PROPOSAL_BYTES + 2) // 3)
 EXCERPT_DERIVATION_SECONDS = 120
 CLEANUP_MARKER = '.research-job-cleanup-unknown.json'
 STATUS_NAME = 'research-job-status.json'
@@ -44,10 +48,15 @@ SAFE_HOST_ERRORS = frozenset({'research_job_failed', 'research_job_unknown', 're
                              'research_job_cleanup_unknown', 'prior_container_cleanup_requires_review'})
 STATUSES = {'ingested', 'idle', 'queued', 'started', 'completed', 'failed', 'no_evidence',
             'needs_model_configuration', 'skipped_before_window', 'skipped_active', 'skipped_daily_limit'}
+PROPOSAL_DRAFT_STATUSES = {'draft_created', 'already_proposed'}
+PROPOSAL_SKIP_STATUSES = {'inactive_template', 'invalid_template', 'proposal_failed', 'no_verified_trading_day',
+                          'no_completed_scheduled_run', 'no_eligible_template_match'}
+NOTICE_STATUSES = {'unconfigured', 'not_claimed', 'unknown', 'webhook_acknowledged', 'disabled', 'rejected', 'failed'}
 
 CONTAINER_SCRIPT = (
     'SAFE_RESEARCH_ERRORS = frozenset(' + repr(sorted(SAFE_RESEARCH_ERRORS)) + ')\n'
     f'MAX_EXCERPT_WIRE_BYTES = {MAX_EXCERPT_WIRE_BYTES}\n'
+    f'MAX_PROPOSAL_WIRE_BYTES = {MAX_PROPOSAL_WIRE_BYTES}\n'
 ) + r'''
 import base64
 import json
@@ -59,7 +68,7 @@ from zoneinfo import ZoneInfo
 import psycopg2
 from app.ashare.schema import get_database_url
 
-payload = json.loads(sys.stdin.read(MAX_EXCERPT_WIRE_BYTES + 4096))
+payload = json.loads(sys.stdin.read(MAX_EXCERPT_WIRE_BYTES + MAX_PROPOSAL_WIRE_BYTES + 4096))
 job = payload.get('job')
 result = {'job': job, 'status': 'failed', 'error': 'research_job_failed', 'execution_allowed': False}
 safe_exception = lambda error: 'research_job_failed'
@@ -73,6 +82,8 @@ try:
     fields = {'job', 'tenant_id', 'account_id', 'idempotency_key', 'daily'} if job == 'request' else {'job'}
     if job == 'work' and 'excerpt' in payload:
         fields |= {'excerpt', 'excerpt_sha256'}
+    if job == 'work' and 'proposal_template' in payload:
+        fields.add('proposal_template')
     if set(payload) != fields:
         raise ValueError()
     if job == 'request':
@@ -85,7 +96,6 @@ try:
         if payload['daily'] and (local.hour, local.minute) < (8,30):
             print(json.dumps({'job': job, 'status': 'skipped_before_window', 'execution_allowed': False}))
             raise SystemExit(0)
-        key = 'scheduled-' + local.strftime('%Y%m%d') if payload['daily'] else payload['idempotency_key']
     with closing(psycopg2.connect(get_database_url(), connect_timeout=5,
             options='-c statement_timeout=5000 -c lock_timeout=2000')) as connection:
         if job == 'news':
@@ -113,11 +123,24 @@ try:
             if run:
                 result['id'] = run['id']
                 attach_run_error(result, run)
+            if 'proposal_template' in payload and result['status'] in ('completed', 'idle'):
+                from app.ashare.strategy_proposals import propose_and_notify
+                try:
+                    encoded = payload['proposal_template']
+                    if not isinstance(encoded, str) or len(encoded) > MAX_PROPOSAL_WIRE_BYTES:
+                        raise ValueError()
+                    template = base64.b64decode(encoded, validate=True)
+                except (ValueError, TypeError):
+                    result['proposal'] = {'status': 'invalid_template'}
+                else:
+                    result['proposal'] = propose_and_notify(connection, template)
         else:
             from app.ashare.research import ResearchStore, ResearchError
             safe_exception = lambda error: str(error) if isinstance(error, ResearchError) and str(error) in SAFE_RESEARCH_ERRORS else 'research_job_failed'
             try:
-                run = ResearchStore(connection, payload['tenant_id'], payload['account_id']).request_run(key)
+                research = ResearchStore(connection, payload['tenant_id'], payload['account_id'])
+                run = (research.request_scheduled_run(local.date()) if payload['daily']
+                       else research.request_run(payload['idempotency_key']))
                 result = {'job': job, 'status': run['status'], 'id': run['id'], 'execution_allowed': False}
                 attach_run_error(result, run)
             except ResearchError as exc:
@@ -164,6 +187,8 @@ def load_job_status(state):
         stamps = [data['updated_at']]
         for job, item in data['jobs'].items():
             allowed = {'job','status','started_at','updated_at','execution_allowed','id','receipt_id','item_count','source_hash','error'}
+            if job == 'work':
+                allowed.add('proposal')
             valid_statuses = STATUSES | ({'unknown', 'waiting_for_excerpt'} if job == 'work' else {'unknown'})
             if (job not in TIMEOUTS or not isinstance(item, dict) or set(item) - allowed
                     or item.get('job') != job or item.get('status') not in valid_statuses
@@ -177,6 +202,8 @@ def load_job_status(state):
                     raise ValueError()
             if 'item_count' in item and (type(item['item_count']) is not int or not 0 <= item['item_count'] <= 15):
                 raise ValueError()
+            if 'proposal' in item:
+                _proposal_summary(item['proposal'], item['status'])
         if any(not isinstance(stamp,str) or datetime.fromisoformat(stamp).utcoffset() is None for stamp in stamps):
             raise ValueError()
         return data
@@ -201,6 +228,20 @@ def _request(tenant_id, account_id, idempotency_key, daily):
             'idempotency_key': idempotency_key, 'daily': daily}
 
 
+def _proposal_summary(proposal, research_status):
+    if (research_status not in ('completed', 'idle') or not isinstance(proposal, dict)
+            or not isinstance(proposal.get('status'), str)):
+        raise ValueError('invalid_proposal_status')
+    if proposal['status'] in PROPOSAL_SKIP_STATUSES and set(proposal) == {'status'}:
+        return proposal
+    if (proposal['status'] not in PROPOSAL_DRAFT_STATUSES
+            or set(proposal) != {'status', 'version_id', 'notice'}
+            or not isinstance(proposal['version_id'], str) or not re.fullmatch('[a-f0-9]{32}', proposal['version_id'])
+            or not isinstance(proposal['notice'], str) or proposal['notice'] not in NOTICE_STATUSES):
+        raise ValueError('invalid_proposal_status')
+    return proposal
+
+
 def _safe_result(result, job):
     if len(result.stdout.encode('utf-8')) > MAX_OUTPUT_BYTES:
         raise ValueError('job_response_invalid')
@@ -223,7 +264,23 @@ def _safe_result(result, job):
         safe.update({key: value[key] for key in ('receipt_id', 'item_count', 'source_hash')})
     if value.get('error') is not None or value['status'] == 'failed':
         safe['error'] = safe_job_error(job, value.get('error'))
+    if 'proposal' in value:
+        if job != 'work':
+            raise ValueError('invalid_proposal_status')
+        safe['proposal'] = _proposal_summary(value['proposal'], value['status'])
     return safe
+
+
+def _read_proposal_template(path):
+    flags = os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW
+    with os.fdopen(os.open(path, flags), 'rb') as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
+            raise ValueError('invalid_proposal_template')
+        raw = stream.read(MAX_PROPOSAL_BYTES + 1)
+    if not 0 < len(raw) <= MAX_PROPOSAL_BYTES:
+        raise ValueError('invalid_proposal_template')
+    return base64.b64encode(raw).decode('ascii')
 
 
 def _work_excerpt_payload(path, digest):
@@ -286,8 +343,8 @@ def _latest_excerpt_payload(state, directory):
 
 
 def run_job(state, job, *, tenant_id=None, account_id='paper', idempotency_key=None, daily=False,
-            excerpt=None, excerpt_sha256=None, excerpt_dir=None):
-    if job not in TIMEOUTS:
+            excerpt=None, excerpt_sha256=None, excerpt_dir=None, proposal_template=None):
+    if job not in TIMEOUTS or (proposal_template is not None and job != 'work'):
         raise ValueError('invalid_job')
     payload = _request(tenant_id, account_id, idempotency_key, daily) if job == 'request' else {'job': job}
     if excerpt_dir is not None:
@@ -311,6 +368,12 @@ def run_job(state, job, *, tenant_id=None, account_id='paper', idempotency_key=N
                 print(json.dumps(outcome))
                 return 0
             payload.update(evidence)
+        invalid_proposal_template = False
+        if proposal_template is not None:
+            try:
+                payload['proposal_template'] = _read_proposal_template(proposal_template)
+            except (ValueError, OSError):
+                invalid_proposal_template = True
         metadata = json.loads((state / 'deployment.json').read_text())
         ops.check_project(metadata['project'])
         container = 'quantdinger-research-' + job + '-' + uuid.uuid4().hex
@@ -322,6 +385,8 @@ def run_job(state, job, *, tenant_id=None, account_id='paper', idempotency_key=N
             result = subprocess.run(command, input=json.dumps(payload), capture_output=True, text=True,
                                     timeout=TIMEOUTS[job], check=False)
             outcome = _safe_result(result, job)
+            if invalid_proposal_template and outcome['status'] in ('completed', 'idle'):
+                outcome['proposal'] = {'status': 'invalid_template'}
         except subprocess.TimeoutExpired:
             outcome['error'] = 'research_job_timeout'
         except (OSError, ValueError, TypeError, KeyError):
@@ -335,7 +400,7 @@ def run_job(state, job, *, tenant_id=None, account_id='paper', idempotency_key=N
     return 1 if outcome['status'] in ('failed', 'unknown') else 0
 
 
-def templates(state, output_dir, tenant_id, account_id, *, excerpt_dir=None):
+def templates(state, output_dir, tenant_id, account_id, *, excerpt_dir=None, proposal_template=None):
     """Write inert unit files only; explicit account authorization is supplied by caller."""
     _request(tenant_id, account_id, None, True)
     project = json.loads((state / 'deployment.json').read_text())['project']
@@ -352,6 +417,8 @@ def templates(state, output_dir, tenant_id, account_id, *, excerpt_dir=None):
         if job == 'request': args += ['--tenant-id', tenant_id, '--account-id', account_id, '--daily']
         if job == 'work' and excerpt_dir is not None:
             args += ['--excerpt-dir', excerpt_dir]
+        if job == 'work' and proposal_template is not None:
+            args += ['--proposal-template', proposal_template]
         command = ' '.join(ops.systemd_argument(value) for value in args)
         dependencies = ' '.join(f'quantdinger-research-{name}-{project}.service' for name in start_after[job])
         if job == 'work' and excerpt_dir is not None:
@@ -397,6 +464,7 @@ def main(argv=None):
     parser.add_argument('--excerpt', type=Path)
     parser.add_argument('--excerpt-sha256')
     parser.add_argument('--excerpt-dir', type=Path)
+    parser.add_argument('--proposal-template', type=Path)
     args = parser.parse_args(argv)
     state = args.state_dir.expanduser().resolve()
     if state == ops.ROOT or ops.ROOT in state.parents:
@@ -405,18 +473,21 @@ def main(argv=None):
         parser.error('--excerpt and --excerpt-sha256 require work')
     if args.excerpt_dir and (args.excerpt or args.command not in ('work', 'templates')):
         parser.error('--excerpt-dir requires work or templates without an explicit excerpt')
+    if args.proposal_template and args.command not in ('work', 'templates'):
+        parser.error('--proposal-template requires work or templates')
     excerpt_dir = args.excerpt_dir.expanduser().resolve() if args.excerpt_dir else None
+    proposal_template = args.proposal_template.expanduser().absolute() if args.proposal_template else None
     if args.command == 'templates':
         if not args.output_dir or not args.tenant_id:
             parser.error('templates requires --output-dir and --tenant-id')
         return templates(state, args.output_dir.expanduser().resolve(), args.tenant_id, args.account_id,
-                         excerpt_dir=excerpt_dir)
+                         excerpt_dir=excerpt_dir, proposal_template=proposal_template)
     if args.output_dir or (args.command != 'request' and (args.tenant_id or args.idempotency_key or args.daily)):
         parser.error('Unexpected job options')
     return run_job(state, args.command, tenant_id=args.tenant_id, account_id=args.account_id,
                    idempotency_key=args.idempotency_key, daily=args.daily,
                    excerpt=args.excerpt.expanduser() if args.excerpt else None, excerpt_sha256=args.excerpt_sha256,
-                   excerpt_dir=excerpt_dir)
+                   excerpt_dir=excerpt_dir, proposal_template=proposal_template)
 
 
 if __name__ == '__main__':

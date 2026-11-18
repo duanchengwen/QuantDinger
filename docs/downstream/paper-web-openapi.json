@@ -1456,6 +1456,88 @@
         }
       }
     },
+    "/strategy-versions/{version_id}/evaluation": {
+      "get": {
+        "summary": "Read the execution evidence and any review suggestion for an exact paper strategy version",
+        "description": "Reads a bounded, consistent snapshot for the authenticated account. A review suggestion cannot submit orders or change strategy approval or activation. Performance values are unavailable for this single-entry assessment.",
+        "parameters": [
+          {
+            "name": "version_id",
+            "in": "path",
+            "required": true,
+            "schema": {"type": "string", "pattern": "^[0-9a-f]{32}$"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paper assessment, including a reason when evidence is insufficient",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["code", "msg", "data"],
+                  "properties": {
+                    "code": {"type": "integer", "enum": [1]},
+                    "msg": {"type": "string"},
+                    "data": {
+                      "type": "object",
+                      "required": ["method", "mode", "version_id", "config_sha256", "version_status", "version_decisions", "observed_at", "assessment_sha256", "status", "execution", "performance", "proposal", "proposal_unavailable_reason", "execution_allowed"],
+                      "properties": {
+                        "method": {"type": "string", "enum": ["paper_buy_once_execution_v1"]},
+                        "mode": {"type": "string", "enum": ["paper"]},
+                        "version_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+                        "config_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                        "version_status": {"type": "string", "enum": ["draft", "approved", "revoked"]},
+                        "version_decisions": {
+                          "type": "object",
+                          "additionalProperties": {"type": "string", "format": "date-time", "nullable": true}
+                        },
+                        "observed_at": {"type": "string", "format": "date-time"},
+                        "assessment_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                        "status": {"type": "string", "enum": ["insufficient_evidence", "review_suggested"]},
+                        "execution": {
+                          "type": "object",
+                          "required": ["status"],
+                          "properties": {
+                            "status": {"type": "string", "enum": ["not_activated", "order_not_observed", "evidence_unavailable", "open", "partial", "filled", "cancelled", "expired"]}
+                          }
+                        },
+                        "performance": {
+                          "type": "object",
+                          "required": ["status", "reason_codes", "realized_pnl_cny", "marked_pnl_cny", "performance_return"],
+                          "properties": {
+                            "status": {"type": "string", "enum": ["insufficient_evidence"]},
+                            "reason_codes": {"type": "array", "items": {"type": "string"}},
+                            "realized_pnl_cny": {"type": "string", "nullable": true},
+                            "marked_pnl_cny": {"type": "string", "nullable": true},
+                            "performance_return": {"type": "string", "nullable": true}
+                          }
+                        },
+                        "proposal": {
+                          "type": "object",
+                          "nullable": true,
+                          "required": ["kind", "requires_human_review", "execution_allowed"],
+                          "properties": {
+                            "kind": {"type": "string", "enum": ["review_entry_constraints"]},
+                            "requires_human_review": {"type": "boolean", "enum": [true]},
+                            "execution_allowed": {"type": "boolean", "enum": [false]}
+                          }
+                        },
+                        "proposal_unavailable_reason": {"type": "string", "nullable": true},
+                        "execution_allowed": {"type": "boolean", "enum": [false]}
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {"description": "Invalid version ID, unexpected query fields or version unavailable to the signed-in account"},
+          "401": {"description": "Human authentication required"},
+          "503": {"description": "Database unavailable"}
+        }
+      }
+    },
     "/strategy-versions/{version_id}/decision": {
       "post": {
         "summary": "Explicitly approve, enable for PAPER execution, or revoke an exact strategy version",

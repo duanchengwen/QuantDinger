@@ -69,3 +69,16 @@ Local evidence is under the workspace parent `work/quantdinger-longrun-acceptanc
 Legacy absolute evidence references remain intact; copied artifacts live at container `/app/data/evidence`, with prefix mapping in the migration manifest and unchanged hashes. Backups contain secrets; filesystem permissions are not encryption. Encrypt off-host copies. Web quotes carry no exchange-grade latency SLA, paper depth is not a real queue, and unknown calendar coverage still blocks trading.
 
 The structure baseline records only the existing hard-deny guards introduced in `cd0bab1` (+11 HTTP-file lines, +2 queued-live-order function lines); all other upstream growth thresholds and banned patterns remain unchanged.
+
+
+## November 18 cloud cutover at 20:20 Asia/Shanghai
+
+The two-core Ubuntu 24.04 instance took ownership of the paper stack and six background timers. The source services and timers were stopped. Source data and the cutover snapshot were retained. PostgreSQL, API, web and worker passed health checks. The local web port binds only to loopback. Public access uses validated HTTPS. A simulated certificate renewal succeeded. The first actual scheduled renewal remains to be observed.
+
+Restoration used a post-close snapshot taken with writers stopped. The restore verified every saved database fingerprint and both evidence and private settings archives. The restore command consumed the remaining launcher standard input, leaving the verified database ready and the services unstarted. A separate script resumed using that same verified snapshot and enabled public access after local health and authorization checks. Post-cutover checks matched 20 stable table fingerprints and the private model settings file. The existing two paper orders, one fill, one position and two reconciled reports were readable. Five anonymous request types returned 401.
+
+Signed Feishu configuration was restored. A browser rehearsal in isolation preserved the exact review target through login and opened that version read-only. Approval and activation are separate user actions. Actual receipt in the Feishu group awaits a normal message. Acceptance did not call a model, resend reports or write strategies.
+
+November 17 had partial local coverage. November 18 was observed on the source host. The migrated quote archive passed read and hash checks on the cloud host. Five complete natural cloud sessions, Windows and remote CI remain open. Local evidence is in the project parent's `work/quantdinger-natural-acceptance/`.
+
+Scheduled review drafts and read-only strategy evaluation were integrated on the same day. With isolated PostgreSQL, 550 backend tests passed on each of Python 3.11 and 3.12. Operations passed 163 tests and three subtests. The frontend passed 48 tests and an isolated production build. The first combined Python 3.12 run omitted the `scripts/` mount. A fresh-database rerun with the proper mount passed. The cloud remains on cutover release `c5187ef`. The two integrated features still require a confirmed template, release and natural acceptance.

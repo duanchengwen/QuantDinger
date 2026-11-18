@@ -20,6 +20,7 @@ function mount (request, canWrite = true) {
     Object.defineProperty(state, name, { get: getter.bind(state) })
   }
   state.applyResearchSeed = component.watch.researchSeed.handler.bind(state)
+  state.selectionChanged = component.watch.selectedId.bind(state)
   return state
 }
 
@@ -152,4 +153,44 @@ test('a notice opens only its exact strategy, including versions outside the lat
   assert.equal(state.selected, undefined)
   assert.equal(state.error, 'ashare.strategyLinkedVersionUnavailable')
   assert.ok(calls.every(([, method]) => method === undefined))
+})
+
+test('a viewer reads only the selected version assessment with an explicit user action', async () => {
+  const version = { id: 'a'.repeat(32), status: 'draft', config_sha256: 'f'.repeat(64) }
+  const evidence = { version_id: version.id, config_sha256: version.config_sha256, mode: 'paper',
+    execution_allowed: false, execution: { status: 'not_activated' }, status: 'insufficient_evidence', proposal: null }
+  const calls = []
+  const state = mount((...args) => { calls.push(args); return evidence }, false)
+  state.versions = [version]
+  state.selectedId = version.id
+  state.selectionChanged()
+  assert.equal(calls.length, 0)
+  await state.loadAssessment(state.selected)
+  assert.deepEqual(calls, [[`/strategy-versions/${version.id}/evaluation`]])
+  assert.equal(state.assessment, evidence)
+  assert.equal(state.selected.status, 'draft')
+  assert.equal(state.dialog, undefined)
+})
+
+test('switching versions discards an in-flight assessment and rejects a mismatched hash', async () => {
+  const first = { id: 'a'.repeat(32), config_sha256: 'f'.repeat(64) }
+  const second = { id: 'b'.repeat(32), config_sha256: '0'.repeat(64) }
+  const observation = v => ({ version_id: v.id, config_sha256: v.config_sha256, mode: 'paper', execution_allowed: false,
+    execution: { status: 'not_activated' } })
+  let resolve
+  const state = mount(path => path.includes(first.id)
+    ? new Promise(done => { resolve = done })
+    : { ...observation(second), config_sha256: first.config_sha256 })
+  state.versions = [first, second]
+  state.selectedId = first.id
+  const pending = state.loadAssessment(state.selected)
+  state.selectedId = second.id
+  state.selectionChanged()
+  resolve(observation(first))
+  await pending
+  assert.equal(state.assessment, null)
+  assert.equal(state.assessmentError, '')
+  await state.loadAssessment(state.selected)
+  assert.equal(state.assessment, null)
+  assert.equal(state.assessmentError, 'ashare.strategyEvaluationUnavailable')
 })

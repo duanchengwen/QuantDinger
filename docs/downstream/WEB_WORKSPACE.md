@@ -48,6 +48,8 @@ Orders require a fresh quote, healthy worker, current review and continuous auct
 
 Only reviewed non-ST MAIN/CHINEXT stocks in 100-share lots are supported. STAR, BSE, odd lots, auctions and corporate actions are excluded. Web snapshots are not exchange tick feeds or queue-priority guarantees.
 
+In **Strategy versions**, select a version and click **View paper assessment**. The assessment checks the simulated order and its fills for that exact version. When the ledger and closing report support it, an expired order with unfilled shares can yield a suggestion to review the entry conditions. Strategy return stays unavailable without an attributable exit, verified valuation and out-of-sample evaluation. Any revised version requires its own human approval and explicit enablement.
+
 ## Continuous operation
 
 The worker identifies exchange holidays, pre-open, lunch, closing auction and close. Rules expire daily and require renewed human review. Pinned XSHG calendar coverage ends **2026-12-31**; unknown dates fail closed until a verified calendar update. Prior-day orders expire without needing a fresh quote.

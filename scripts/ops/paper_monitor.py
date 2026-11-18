@@ -219,7 +219,7 @@ def research_job_status(state):
             item = value.get('jobs', {}).get(name)
             if item is not None:
                 jobs[name] = {key: item[key] for key in ('job', 'status', 'started_at', 'updated_at',
-                    'execution_allowed', 'id', 'receipt_id', 'item_count', 'source_hash', 'error') if key in item}
+                    'execution_allowed', 'id', 'receipt_id', 'item_count', 'source_hash', 'error', 'proposal') if key in item}
         return {'status': 'observed', 'updated_at': value['updated_at'], 'jobs': jobs}
     except (ImportError, OSError, ValueError, TypeError, AttributeError, KeyError):
         return {'status': 'invalid_or_unavailable', 'jobs': {}}
@@ -257,6 +257,15 @@ def assess_research(payload, now, jobs_now, issues, pending):
                 pending.append(prefix + '_' + status)
         elif status not in ('ingested', 'idle', 'completed'):
             issues.append(prefix + '_state_invalid')
+        if name == 'work' and 'proposal' in item:
+            proposal = item['proposal']
+            if proposal.get('status') in ('invalid_template', 'proposal_failed'):
+                issues.append('research_proposal_' + proposal['status'])
+            notice = proposal.get('notice')
+            if notice in ('unknown', 'rejected', 'failed'):
+                issues.append('research_proposal_notice_' + notice)
+            elif notice == 'unconfigured':
+                pending.append('research_proposal_notice_unconfigured')
         try:
             age = (jobs_now - timestamp(item['updated_at'])).total_seconds()
             started_age = (jobs_now - timestamp(item['started_at'])).total_seconds()

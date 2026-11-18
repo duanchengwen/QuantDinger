@@ -389,8 +389,52 @@ def test_immutable_strategy_version_human_approval_and_revocation(client):
     assert account["orders"] == [] and account["account"]["cash"] == "10000.00"
 
 
+def test_exact_strategy_evaluation_is_read_only_and_does_not_record_human_decisions(client):
+    base = "/strategy-versions"
+    assert call(client, "/initialize", {"initial_cash": "10000"}).status_code == 200
+    assert call(client, "/initialize", {"initial_cash": "10000"}, token="other").status_code == 200
+    draft = call(client, base, {"config": _strategy_config(), "request_key": "evaluation-api"}).json["data"]
+    version_path = f"{base}/{draft['id']}"
+    path = f"{version_path}/evaluation"
+    assert client.get("/api/ashare-paper" + path).status_code == 401
+    denied = call(client, path, token="other", method="GET")
+    missing = call(client, f"{base}/{'0' * 32}/evaluation", token="other", method="GET")
+    assert denied.status_code == missing.status_code == 400
+    assert denied.json == missing.json == {"code": 0, "msg": "strategy_version_not_found", "data": None}
+    assert call(client, path + "?tenant_id=other", method="GET").status_code == 400
+    assert call(client, path + "?decision=approved", method="GET").status_code == 400
+    assert call(client, path, {"confirmed": True}).status_code == 405
+
+    state_before = call(client, "/state", method="GET").json["data"]
+    result = call(client, path + "?_t=1", token="viewer", method="GET")
+    assert result.status_code == 200
+    assessment = result.json["data"]
+    assert assessment["version_id"] == draft["id"] and assessment["config_sha256"] == draft["config_sha256"]
+    assert assessment["status"] == "insufficient_evidence" and assessment["proposal"] is None
+    assert assessment["execution"] == {"status": "not_activated"} and assessment["execution_allowed"] is False
+    assert assessment["performance"]["performance_return"] is None
+    assert call(client, version_path, method="GET").json["data"]["status"] == "draft"
+    assert call(client, "/state", method="GET").json["data"]["audit"] == state_before["audit"]
+
+    decision = {"config_sha256": draft["config_sha256"], "decision": "approved", "confirmed": True}
+    decision_path = f"{version_path}/decision"
+    assert call(client, decision_path, {**decision, "confirmed": False}).status_code == 400
+    approved = call(client, decision_path, decision).json["data"]
+    assert approved["approved_by"] == client.test_user and approved["execution_allowed"] is False
+    evaluated_approval = call(client, path, method="GET").json["data"]
+    assert evaluated_approval["version_decisions"]["activated_at"] is None
+    activate = {**decision, "decision": "activated"}
+    assert call(client, decision_path, activate, token="viewer").status_code == 403
+    enabled = call(client, decision_path, activate).json["data"]
+    assert enabled["activated_by"] == client.test_user and enabled["execution_allowed"] is True
+    evaluated_enable = call(client, path, method="GET").json["data"]
+    assert evaluated_enable["execution"] == {"status": "order_not_observed"}
+    assert evaluated_enable["execution_allowed"] is False and evaluated_enable["proposal"] is None
+    assert call(client, "/state", method="GET").json["data"]["orders"] == []
+
+
 def test_feishu_review_deep_link_is_read_only_tenant_scoped_and_sent_once(client, monkeypatch):
-    from app.ashare import web_api
+    from app.ashare import notifications
 
     monkeypatch.setenv("ASHARE_REVIEW_BASE_URL", "https://paper.example.test")
     notices = []
@@ -400,7 +444,7 @@ def test_feishu_review_deep_link_is_read_only_tenant_scoped_and_sent_once(client
         assert credentials["webhook_url"].endswith("/review-fixture")
         return {"status": "failed", "error": "transport_error_delivery_unknown"}
 
-    monkeypatch.setattr(web_api, "notify_strategy_card", notify)
+    monkeypatch.setattr(notifications, "notify_strategy_card", notify)
     assert call(client, "/initialize", {"initial_cash": "10000"}).status_code == 200
     assert call(client, "/notifications/config", {
         "webhook_url": "https://open.feishu.cn/open-apis/bot/v2/hook/review-fixture",

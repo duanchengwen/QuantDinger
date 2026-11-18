@@ -12,8 +12,11 @@ import json
 import os
 import re
 import time
+from urllib.parse import urlsplit
 
 import requests
+
+from app.ashare.daily_notification import daily_feishu_status
 
 _WEBHOOK = re.compile(r"https://open\.feishu\.cn/open-apis/bot/v2/hook/[A-Za-z0-9-]{1,160}\Z")
 
@@ -51,6 +54,26 @@ def notify_strategy_card(version, url, *, webhook_url, signing_secret):
         ],
     }}
     return _send(payload, webhook_url, signing_secret)
+
+
+def send_strategy_review_notice(store, versions, version):
+    """Send only after the exact paper draft and its one-shot intent have committed."""
+    base = os.environ.get("ASHARE_REVIEW_BASE_URL", "").strip().rstrip("/")
+    if not base:
+        return "unconfigured"
+    origin = urlsplit(base)
+    if (origin.scheme != "https" or not origin.hostname or origin.username is not None
+            or origin.path or origin.query or origin.fragment or origin.port == 0):
+        raise ValueError("invalid_strategy_review_origin")
+    credentials = store.notification_credentials()
+    if not credentials["webhook_url"]:
+        return "unconfigured"
+    if not versions.claim_review_notice(version["id"]):
+        return versions.review_notice_status(version["id"])
+    link = f"{base}/#/ashare-paper?strategy_version={version['id']}"
+    status = daily_feishu_status(notify_strategy_card(version, link, **credentials))
+    versions.record_review_notice(version["id"], status)
+    return status
 
 
 def _send(payload, webhook_url, signing_secret):

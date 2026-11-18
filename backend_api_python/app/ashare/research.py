@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import argparse
 from contextlib import closing
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 import hashlib
 import json
 import re
@@ -39,6 +39,7 @@ MAX_DAILY_REQUESTS = 3
 REQUEST_TIMEOUT = 90
 LEASE_SECONDS = 180
 FRESH_DAYS = 7
+SCHEDULED_REQUEST_PREFIX = 'scheduled-'
 PROMPT_VERSION = 'issuer-title-research-v1'
 SYSTEM_PROMPT = '''You prepare Chinese A-share research notes, never trading signals or strategies.
 Return only a JSON object with exactly summary, risks, candidates. Example JSON:
@@ -372,8 +373,17 @@ class ResearchStore:
                 for key, value in dict(row).items() if key not in private}
 
     def request_run(self, idempotency_key):
-        if not isinstance(idempotency_key, str) or not re.fullmatch(r'[A-Za-z0-9_-]{8,100}', idempotency_key):
+        if (not isinstance(idempotency_key, str) or idempotency_key.startswith(SCHEDULED_REQUEST_PREFIX)
+                or not re.fullmatch(r'[A-Za-z0-9_-]{8,100}', idempotency_key)):
             raise ResearchError('invalid_idempotency_key')
+        return self._request_run(idempotency_key)
+
+    def request_scheduled_run(self, day):
+        if type(day) is not date:
+            raise ResearchError('invalid_idempotency_key')
+        return self._request_run(SCHEDULED_REQUEST_PREFIX + day.strftime('%Y%m%d'), scheduled=True)
+
+    def _request_run(self, idempotency_key, *, scheduled=False):
         with self.connection, self.connection.cursor(cursor_factory=RealDictCursor) as cursor:
             cursor.execute('SELECT settings FROM qd_ashare_web WHERE tenant_id=%s AND account_id=%s FOR UPDATE', self.key)
             settings = cursor.fetchone()
@@ -393,10 +403,15 @@ class ResearchStore:
             prefs = _preferences(settings['settings'].get('research_preferences', {}))
             initial = {'preferences': prefs, 'mapping_version': MAPPING_VERSION, 'prompt_version': PROMPT_VERSION,
                        'system_prompt': SYSTEM_PROMPT, 'topic_mapping': dict(TOPIC_BOARDS), 'evidence_status': 'not_loaded'}
+            run_id = uuid.uuid4().hex
             cursor.execute("""INSERT INTO qd_ashare_research_runs(id,tenant_id,account_id,idempotency_key,status,preferences,input_snapshot,input_hash)
                 VALUES(%s,%s,%s,%s,'queued',%s::jsonb,%s::jsonb,%s) RETURNING *""",
-                           (uuid.uuid4().hex, *self.key, idempotency_key, _json(prefs), _json(initial), _hash(_json(initial))))
-            return self._public(cursor.fetchone())
+                           (run_id, *self.key, idempotency_key, _json(prefs), _json(initial), _hash(_json(initial))))
+            row = cursor.fetchone()
+            if scheduled:
+                cursor.execute("""INSERT INTO qd_ashare_audit(tenant_id,account_id,event,details)
+                    VALUES(%s,%s,'research_daily_scheduled',%s::jsonb)""", (*self.key, _json({'run_id': run_id})))
+            return self._public(row)
 
     create_run = request_run
 
@@ -406,6 +421,15 @@ class ResearchStore:
 
     def find_run(self, cursor, run_id):
         cursor.execute('SELECT * FROM qd_ashare_research_runs WHERE tenant_id=%s AND account_id=%s AND id=%s', (*self.key, run_id))
+        return self._public(cursor.fetchone())
+
+    def find_completed_scheduled_run(self, cursor, day):
+        cursor.execute("""SELECT r.* FROM qd_ashare_research_runs r
+            WHERE r.tenant_id=%s AND r.account_id=%s AND r.idempotency_key=%s AND r.status='completed'
+              AND EXISTS (SELECT 1 FROM qd_ashare_audit a
+                  WHERE a.tenant_id=r.tenant_id AND a.account_id=r.account_id
+                    AND a.event='research_daily_scheduled' AND a.details->>'run_id'=r.id)
+            FOR SHARE OF r""", (*self.key, SCHEDULED_REQUEST_PREFIX + day.strftime('%Y%m%d')))
         return self._public(cursor.fetchone())
 
     def list_runs(self, limit=20):

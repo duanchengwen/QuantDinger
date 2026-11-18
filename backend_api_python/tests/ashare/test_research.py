@@ -396,6 +396,278 @@ def test_pg_configuration_and_no_evidence_never_call_model(store):
     assert run['status'] == 'no_evidence' and run['error_code'] == 'no_news_evidence' and adapter.calls == 0
 
 
+def _proposal_template(tenant='user_1'):
+    return {
+        'schema_version': 1, 'enabled': True, 'tenant_id': tenant, 'account_id': 'paper',
+        'expires_at': (datetime.now(timezone.utc) + timedelta(hours=4)).isoformat(),
+        'rules': [
+            {'symbol': 'sz.000001', 'quantity': 100, 'threshold': '9.99', 'limit_price': '9.90', 'max_cash': '1100'},
+            {'symbol': SYMBOL, 'quantity': 200, 'threshold': '12.10', 'limit_price': '12', 'max_cash': '2500'},
+        ],
+    }
+
+
+@pytest.mark.parametrize('changes', [
+    {'enabled': 1}, {'schema_version': True}, {'account_id': 'live'}, {'tenant_id': 'user_01'},
+    {'tenant_id': 'user_9223372036854775808'}, {'expires_at': '2026-11-19'},
+    {'rules': []}, {'rules': [{'symbol': SYMBOL}]}, {'auto_activate': True},
+])
+def test_proposal_template_requires_explicit_scoped_parameters(changes):
+    from app.ashare.strategy_proposals import normalize_template
+
+    with pytest.raises(ValueError, match='invalid_proposal_template'):
+        normalize_template({**_proposal_template(), **changes})
+
+
+def test_inactive_proposal_template_can_finish_without_database():
+    from app.ashare.strategy_proposals import propose
+
+    now = datetime.now(timezone.utc)
+    for changes in ({'enabled': False}, {'expires_at': now.isoformat()}):
+        assert propose(None, {**_proposal_template(), **changes}, now=now) == {
+            'execution_allowed': False, 'approvals_created': 0, 'status': 'inactive_template',
+        }
+
+
+def test_pg_proposal_from_proven_scheduled_run_is_atomic_review_only(dedicated_database, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from contextlib import closing
+    from threading import Barrier
+    import psycopg2
+    from psycopg2 import sql
+    from app.ashare import strategy_proposals
+    from app.ashare.broker import SHANGHAI
+    from app.ashare.schema import MIGRATIONS
+    from app.ashare.strategy_versions import PROPOSAL_REQUEST_PREFIX, StrategyVersions
+    from app.ashare.web_store import WebStore
+
+    monkeypatch.setattr(strategy_proposals, 'trading_day_status', lambda day: {'is_trading_day': True})
+    now = datetime.now(timezone.utc)
+    day = now.astimezone(SHANGHAI).date()
+    key = r.SCHEDULED_REQUEST_PREFIX + day.strftime('%Y%m%d')
+    schema = 'case_' + uuid.uuid4().hex
+    with closing(psycopg2.connect(dedicated_database)) as connection:
+        with connection, connection.cursor() as cursor:
+            cursor.execute(sql.SQL('CREATE SCHEMA {}').format(sql.Identifier(schema)))
+            cursor.execute(sql.SQL('SET search_path TO {}').format(sql.Identifier(schema)))
+            for name in MIGRATIONS:
+                cursor.execute((Path(__file__).parents[2] / 'migrations' / name).read_text())
+
+        for tenant in ('user_1', 'user_2'):
+            web = WebStore(connection, tenant)
+            web.initialize('10000')
+            web.save_settings([SYMBOL, 'sz.000001'], 5, {'topics': ['ai']})
+
+        other = r.ResearchStore(connection, 'user_2')
+        legacy = other.request_run('legacy-manual')
+        other.run_once(Adapter(), Themes(), News())
+        with connection, connection.cursor() as cursor:
+            cursor.execute('UPDATE qd_ashare_research_runs SET idempotency_key=%s WHERE id=%s', (key, legacy['id']))
+        assert other.request_scheduled_run(day)['id'] == legacy['id']
+        assert strategy_proposals.propose(connection, _proposal_template('user_2'))['status'] == 'no_completed_scheduled_run'
+
+        research = r.ResearchStore(connection, 'user_1')
+        with pytest.raises(r.ResearchError, match='invalid_idempotency_key'):
+            research.request_run(key)
+        pending = research.request_scheduled_run(day)
+        assert research.request_scheduled_run(day)['id'] == pending['id']
+        assert strategy_proposals.propose(connection, _proposal_template())['status'] == 'no_completed_scheduled_run'
+        adapter = Adapter()
+        run = research.run_once(adapter, Themes(), News())
+        assert run['status'] == 'completed' and adapter.calls == 1
+        monkeypatch.setattr(r.DeepSeekAdapter, 'complete', lambda *_: pytest.fail('model call during proposal'))
+
+        ineligible = _proposal_template()
+        ineligible['rules'].pop()
+        assert strategy_proposals.propose(connection, ineligible)['status'] == 'no_eligible_template_match'
+        current = datetime.now(timezone.utc)
+        template = _proposal_template()
+        ready = Barrier(2)
+
+        def stage():
+            with closing(psycopg2.connect(dedicated_database)) as worker:
+                with worker, worker.cursor() as cursor:
+                    cursor.execute(sql.SQL('SET search_path TO {}').format(sql.Identifier(schema)))
+                ready.wait(timeout=5)
+                return strategy_proposals.propose(worker, template, now=current)
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = [future.result(timeout=10) for future in (pool.submit(stage), pool.submit(stage))]
+        assert {item['status'] for item in results} == {'draft_created', 'already_proposed'}
+        assert all(result['execution_allowed'] is False and result['approvals_created'] == 0 for result in results)
+        assert len({item['version_id'] for item in results}) == 1
+        versions = StrategyVersions(connection, 'user_1', 'paper')
+        draft = versions.get(results[0]['version_id'])
+        assert draft['status'] == 'draft' and draft['execution_allowed'] is False
+        assert draft['config'] == {
+            'mode': 'paper', 'kind': 'buy_once_below', 'symbol': SYMBOL, 'quantity': 200,
+            'threshold': '12.10', 'limit_price': '12.00', 'max_cash': '2500.00',
+            'research_reference': {'run_id': run['id'], 'input_hash': run['input_hash'], 'output_hash': run['output_hash']},
+        }
+        with pytest.raises(ValueError, match='invalid_strategy_request_key'):
+            versions.create(draft['config'], PROPOSAL_REQUEST_PREFIX + run['id'], 1)
+        with pytest.raises(ValueError, match='strategy_version_not_found'):
+            StrategyVersions(connection, 'user_2', 'paper').get(draft['id'])
+        with pytest.raises(ValueError, match='invalid_strategy_state_transition'):
+            versions.decide(draft['id'], draft['config_sha256'], 'activated', True, 1)
+
+        template['rules'][-1]['threshold'] = '12.20'
+        assert strategy_proposals.propose(connection, template)['version_id'] == draft['id']
+        assert versions.get(draft['id'])['config']['threshold'] == '12.10'
+        with connection, connection.cursor() as cursor:
+            cursor.execute("""SELECT (SELECT count(*) FROM qd_ashare_strategy_versions),
+                (SELECT count(*) FROM qd_ashare_strategy_decisions),
+                (SELECT count(*) FROM qd_ashare_strategy_activations),
+                (SELECT count(*) FROM qd_ashare_orders)""")
+            assert cursor.fetchone() == (1, 0, 0, 0)
+            cursor.execute("SELECT details FROM qd_ashare_audit WHERE event=%s", (strategy_proposals.PROPOSED_EVENT,))
+            proof, = cursor.fetchall()
+            assert proof[0]['template_owner'] == 1 and proof[0]['origin'] == 'scheduled_research_template'
+            assert len(proof[0]['template_sha256']) == 64
+
+
+@pytest.mark.parametrize('delivery', ['ack', 'timeout', 'crash_after_claim', 'crash_before_claim'])
+def test_pg_scheduler_runs_model_once_and_recovers_draft_notice_safely(
+        dedicated_database, monkeypatch, tmp_path, capsys, delivery):
+    import builtins
+    from contextlib import closing, redirect_stdout
+    import importlib.util
+    import io
+    import sys
+    from types import SimpleNamespace
+    import psycopg2
+    from psycopg2 import sql
+    from app.ashare import news, notifications, schema, strategy_proposals
+    from app.ashare.broker import SHANGHAI
+    from app.ashare.web_store import WebStore
+
+    ops_dir = Path(__file__).resolve().parents[3] / 'scripts' / 'ops'
+    monkeypatch.syspath_prepend(str(ops_dir))
+    spec = importlib.util.spec_from_file_location('research_jobs', ops_dir / 'research_jobs.py')
+    jobs = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(jobs)
+
+    schema_name = 'case_' + uuid.uuid4().hex
+    original_connect = psycopg2.connect
+
+    def connect(*args, **kwargs):
+        result = original_connect(dedicated_database, **kwargs)
+        with result, result.cursor() as cursor:
+            cursor.execute(sql.SQL('SET search_path TO {}').format(sql.Identifier(schema_name)))
+        return result
+
+    with closing(original_connect(dedicated_database)) as admin:
+        with admin, admin.cursor() as cursor:
+            cursor.execute(sql.SQL('CREATE SCHEMA {}').format(sql.Identifier(schema_name)))
+    with closing(connect()) as owner:
+        with owner, owner.cursor() as cursor:
+            for name in schema.MIGRATIONS:
+                cursor.execute((Path(__file__).parents[2] / 'migrations' / name).read_text())
+        web = WebStore(owner, 'user_1')
+        web.initialize('10000')
+        web.save_settings([SYMBOL, 'sz.000001'], 5, {'topics': ['ai']})
+        monkeypatch.setenv('SECRET_KEY', 'test-fixture-not-a-secret-with-enough-bytes')
+        webhook = 'https://open.feishu.cn/open-apis/bot/v2/hook/fixture-only'
+        web.configure_notifications(webhook, 'fixture-signing-key')
+        monkeypatch.setenv('ASHARE_REVIEW_BASE_URL', 'https://paper.test')
+        monkeypatch.setenv('FEISHU_WEBHOOK_URL', 'https://open.feishu.cn/open-apis/bot/v2/hook/wrong-account')
+
+        attempts = []
+
+        def fake_webhook(card, webhook_url, signing_secret):
+            actions = card['card']['elements'][1]['actions']
+            version_id = actions[0]['url'].split('=')[-1]
+            assert actions[0]['url'] == f'https://paper.test/#/ashare-paper?strategy_version={version_id}'
+            assert webhook_url == webhook and signing_secret == 'fixture-signing-key'
+            assert card['msg_type'] == 'interactive'
+            with closing(connect()) as observer, observer, observer.cursor() as cursor:
+                cursor.execute("""SELECT (SELECT count(*) FROM qd_ashare_strategy_versions WHERE id=%s),
+                    (SELECT count(*) FROM qd_ashare_audit WHERE event='strategy_review_notice_intent'
+                     AND details->>'version_id'=%s)""", (version_id, version_id))
+                assert cursor.fetchone() == (1, 1)
+            attempts.append(version_id)
+            if delivery == 'crash_after_claim':
+                raise SystemExit(99)
+            if delivery == 'timeout':
+                return {'status': 'failed', 'error': 'transport_error_delivery_unknown'}
+            return {'status': 'sent'}
+
+        monkeypatch.setattr(notifications, '_send', fake_webhook)
+        adapter = Adapter()
+        monkeypatch.setattr(r, 'DeepSeekAdapter', lambda: adapter)
+        monkeypatch.setattr(r, 'ThemeStore', lambda _: Themes())
+        monkeypatch.setattr(news, 'NewsStore', lambda _: News())
+        monkeypatch.setattr(strategy_proposals, 'trading_day_status', lambda _: {'is_trading_day': True})
+
+        class SchedulerClock(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return datetime.now(SHANGHAI).replace(hour=9, minute=0).astimezone(tz)
+
+        def input_import(name, *args, **kwargs):
+            if name == 'datetime':
+                return SimpleNamespace(datetime=SchedulerClock)
+            return builtins.__import__(name, *args, **kwargs)
+
+        def container(command, *, input, **kwargs):
+            assert command == ['fixture-container']
+            stdout = io.StringIO()
+            with monkeypatch.context() as isolation, redirect_stdout(stdout):
+                isolation.setattr(sys, 'stdin', io.StringIO(input))
+                isolation.setattr(psycopg2, 'connect', connect)
+                isolation.setattr(schema, 'get_database_url', lambda: 'fixture-dsn')
+                with pytest.raises(SystemExit) as exited:
+                    exec(compile(jobs.CONTAINER_SCRIPT, '<research-job>', 'exec'),
+                         {'__builtins__': {**vars(builtins), '__import__': input_import}})
+            return SimpleNamespace(stdout=stdout.getvalue(), returncode=exited.value.code)
+
+        monkeypatch.setattr(jobs.ops, 'compose', lambda *args: ['fixture-container'])
+        monkeypatch.setattr(jobs, 'cleanup_container', lambda _: True)
+        monkeypatch.setattr(jobs.subprocess, 'run', container)
+        (tmp_path / 'deployment.json').write_text('{"project":"proposal-fixture"}')
+        template = tmp_path / 'owner-only-template.json'
+        jobs.ops.private_write(template, json.dumps(_proposal_template()))
+
+        assert jobs.run_job(tmp_path, 'request', tenant_id='user_1', daily=True) == 0
+        queued = json.loads(capsys.readouterr().out)
+        assert queued['status'] == 'queued'
+        if delivery == 'crash_before_claim':
+            def interrupt(*args, **kwargs):
+                raise SystemExit(98)
+
+            with monkeypatch.context() as crash:
+                crash.setattr(strategy_proposals, 'send_strategy_review_notice', interrupt)
+                assert jobs.run_job(tmp_path, 'work', proposal_template=template) == 1
+            assert not attempts
+        elif delivery == 'crash_after_claim':
+            assert jobs.run_job(tmp_path, 'work', proposal_template=template) == 1
+        else:
+            assert jobs.run_job(tmp_path, 'work', proposal_template=template) == 0
+            work = json.loads(capsys.readouterr().out)
+            assert work['status'] == 'completed' and work['id'] == queued['id']
+            assert work['proposal']['status'] == 'draft_created'
+        capsys.readouterr()
+        assert jobs.run_job(tmp_path, 'work', proposal_template=template) == 0
+        saved = jobs.load_job_status(tmp_path)['jobs']['work']
+        assert len(attempts) == adapter.calls == 1
+        expected_notice = 'unknown' if delivery in ('timeout', 'crash_after_claim') else 'webhook_acknowledged'
+        assert saved['status'] == 'idle' and saved['execution_allowed'] is False
+        assert saved['proposal'] == {'status': 'already_proposed', 'notice': expected_notice, 'version_id': attempts[0]}
+        assert 'fixture-signing-key' not in (tmp_path / jobs.STATUS_NAME).read_text()
+        with owner, owner.cursor() as cursor:
+            cursor.execute("""SELECT (SELECT count(*) FROM qd_ashare_strategy_versions),
+                (SELECT count(*) FROM qd_ashare_strategy_decisions),
+                (SELECT count(*) FROM qd_ashare_strategy_activations),
+                (SELECT count(*) FROM qd_ashare_orders)""")
+            assert cursor.fetchone() == (1, 0, 0, 0)
+            cursor.execute("""SELECT event FROM qd_ashare_audit
+                WHERE event LIKE 'strategy_review_notice_%' ORDER BY id""")
+            events = ['strategy_review_notice_intent']
+            if delivery != 'crash_after_claim':
+                events.append('strategy_review_notice_result')
+            assert [row[0] for row in cursor.fetchall()] == events
+
+
 @pytest.mark.parametrize('mode', ['available', 'future', 'wrong_pdf'])
 def test_pg_excerpt_input_uses_same_claim_and_records_exact_scope(store, excerpt_evidence, mode):
     repo, _ = store

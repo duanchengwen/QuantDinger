@@ -89,3 +89,15 @@ Evidence is in the workspace parent's `work/quantdinger-theme-scheduler-acceptan
 The scheduler now saves the exact container name with its attempt before launch. On restart it validates ownership and cleans up the recorded container before proceeding. Uncertain cleanup pauses the run and a previously attempted board remains eligible for archive checks only.
 
 The rehearsal sent SIGKILL to an isolated host scheduler process and confirmed its network-disabled Docker container survived. Restart cleaned up the exact container and limited the original board to verification. A missing journal failed closed. Real provider requests totaled zero, and the live journal hashes matched. Python 3.11 and 3.12 each passed 150 operations tests. Local proof is `theme-scheduler-kill-rehearsal-20261118.json`. The first natural evening capture and full host disaster recovery remain pending.
+
+
+## November 18 first natural evening collection
+
+The local timer started at 20:11 Asia/Shanghai before the cloud cutover. The AI and robotics boards succeeded. The new-energy board failed, leaving the run `partial`. Its earlier receipt remains available. No provider retry was made in this window.
+
+| Board | Received (Asia/Shanghai) | Verified members | Receipt | Manifest SHA-256 |
+| --- | --- | --- | --- | --- |
+| Artificial intelligence BK0800 | 20:11:12 | 731 | `ef92e3433070486293f2b16c5959f11a` | `8b096d2013780c23943db994001013f14ef9a945ae05a62870f4ef9fbeb5fc74` |
+| Robotics BK1090 | 20:11:16 | 796 | `d20d27c144484497ba4bc390768694fd` | `e8494d7e1a398d2e884928ca2661450d02759d414d830e6943b679404d22fa05` |
+
+The scheduler journal records the real requests, verified archive results and receipt times. The original journal was saved outside the repository. Complete recurring coverage across all three boards remains open.

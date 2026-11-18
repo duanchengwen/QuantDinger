@@ -106,6 +106,30 @@
         type="danger"
         :disabled="loading || busy"
         @click="confirmDecision(selected, 'revoked')">{{ t('strategyRevoke') }}</a-button>
+      <section class="strategy-assessment">
+        <a-button :disabled="loading || busy" :loading="assessmentLoading" @click="loadAssessment(selected)">
+          {{ t('strategyEvaluation') }}
+        </a-button>
+        <a-alert v-if="assessmentError" type="error" :message="assessmentError" />
+        <template v-if="assessment">
+          <p v-if="assessment.execution.status === 'not_activated'">{{ t('strategyEvaluationNotEnabled') }}</p>
+          <p v-else-if="assessment.execution.status === 'order_not_observed'">{{ t('strategyOrderNotSubmitted') }}</p>
+          <p v-else-if="assessment.execution.status === 'evidence_unavailable'">{{ t('strategyEvaluationUnverified') }}</p>
+          <dl v-else>
+            <dt>{{ t('strategyOrderStatus') }}</dt><dd>{{ t('state.' + assessment.execution.status) }}</dd>
+            <dt>{{ t('filled') }}</dt><dd>{{ assessment.execution.filled_quantity }} / {{ assessment.execution.requested_quantity }}</dd>
+            <dt>{{ t('strategyOrderAmount') }}</dt><dd>{{ assessment.execution.fill_notional_cny }}</dd>
+            <dt>{{ t('strategyOrderFees') }}</dt><dd>{{ assessment.execution.fees_cny }}</dd>
+          </dl>
+          <p>{{ t('strategyEvaluationNoPerformance') }}</p>
+          <p v-if="assessment.proposal">{{ t('strategyEvaluationReview') }}</p>
+          <p v-else-if="assessment.execution.status === 'expired'">{{ t('strategyEvaluationReviewUnavailable') }}</p>
+          <dl>
+            <dt>{{ t('strategyEvaluationAt') }}</dt><dd>{{ formatTime(assessment.observed_at) }}</dd>
+            <dt>{{ t('strategyEvaluationHash') }}</dt><dd><code>{{ assessment.assessment_sha256 }}</code></dd>
+          </dl>
+        </template>
+      </section>
     </article>
   </section>
 </template>
@@ -131,6 +155,10 @@ export default {
       loading: false,
       busy: false,
       error: '',
+      assessment: null,
+      assessmentLoading: false,
+      assessmentError: '',
+      assessmentRequest: null,
       request: null,
       researchReference: null,
       draft: { symbol: undefined, quantity: 100, threshold: null, limit_price: null, max_cash: null }
@@ -156,6 +184,7 @@ export default {
       handler (open) { if (open) this.refresh() }
     },
     preferredId () { if (this.active) this.refresh() },
+    selectedId () { this.clearAssessment() },
     researchSeed: {
       immediate: true,
       handler (seed) {
@@ -191,6 +220,7 @@ export default {
       const preferred = this.preferredId
       this.loading = true
       this.error = ''
+      this.clearAssessment()
       if (preferred) this.selectedId = ''
       try {
         const { versions } = await paperRequest(versionPath)
@@ -215,10 +245,40 @@ export default {
       }
     },
     storeResult (version) {
+      this.clearAssessment()
       const index = this.versions.findIndex(item => item.id === version.id)
       if (index === -1) this.versions.unshift(version)
       else this.versions.splice(index, 1, { ...this.versions[index], ...version })
       this.selectedId = version.id
+    },
+    clearAssessment () {
+      this.assessment = null
+      this.assessmentLoading = false
+      this.assessmentError = ''
+      this.assessmentRequest = null
+    },
+    async loadAssessment (version) {
+      if (!version || this.loading || this.busy || this.assessmentLoading) return
+      const marker = {}
+      this.clearAssessment()
+      this.assessmentRequest = marker
+      this.assessmentLoading = true
+      try {
+        const result = await paperRequest(`${versionPath}/${encodeURIComponent(version.id)}/evaluation`)
+        if (this.assessmentRequest !== marker || this.selected !== version) return
+        if (!result || !result.execution || result.version_id !== version.id || result.config_sha256 !== version.config_sha256 ||
+            result.mode !== 'paper' || result.execution_allowed !== false) throw new Error('incorrect_assessment')
+        this.assessment = result
+      } catch {
+        if (this.assessmentRequest === marker && this.selected === version) {
+          this.assessmentError = this.t('strategyEvaluationUnavailable')
+        }
+      } finally {
+        if (this.assessmentRequest === marker) {
+          this.assessmentRequest = null
+          this.assessmentLoading = false
+        }
+      }
     },
     async create () {
       if (!this.canSave) return
@@ -284,4 +344,6 @@ export default {
 .strategy-action { align-self: end; margin-bottom: 24px; }
 .strategy-detail dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 14px; }
 .strategy-detail dd { margin: 0; overflow-wrap: anywhere; }
+.strategy-assessment { margin-top: 16px; }
+.strategy-assessment .ant-btn { margin-bottom: 12px; }
 </style>

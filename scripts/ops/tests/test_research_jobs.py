@@ -139,6 +139,65 @@ def test_excerpt_template_changes_only_the_research_worker(state):
             assert actual == expected.read_text()
 
 
+def test_scheduler_template_opt_in_changes_only_worker_command(state):
+    plain = state / 'plain-units'
+    enabled = state / 'proposal-units'
+    template = state / 'owner-only.json'
+    jobs.templates(state, plain, 'user_7', 'paper')
+    jobs.templates(state, enabled, 'user_7', 'paper', proposal_template=template)
+    worker_name = 'quantdinger-research-work-paper-test.service'
+    for original in plain.iterdir():
+        changed = (enabled / original.name).read_text()
+        if original.name == worker_name:
+            assert f'"--proposal-template" "{template}"' in changed
+        else:
+            assert changed == original.read_text()
+
+
+@pytest.mark.parametrize('source', ['private', 'public', 'symlink', 'large', 'missing'])
+def test_proposal_template_is_private_and_sent_only_via_stdin(state, source):
+    original = state / 'owner-only.json'
+    template = original
+    if source != 'missing':
+        jobs.ops.private_write(original, 'fixture private value')
+    if source == 'public':
+        original.chmod(0o644)
+    if source == 'symlink':
+        template = state / 'redirect'
+        template.symlink_to(original)
+    if source == 'large':
+        original.write_bytes(b'x' * (jobs.MAX_PROPOSAL_BYTES + 1))
+    idle = SimpleNamespace(stdout='{"job":"work","status":"idle","execution_allowed":false}', returncode=0)
+    with (
+        patch.object(jobs.ops, 'compose', return_value=['fixture']),
+        patch.object(jobs, 'cleanup_container', return_value=True),
+        patch.object(jobs.subprocess, 'run', return_value=idle) as run,
+    ):
+        assert jobs.run_job(state, 'work', proposal_template=template) == 0
+    payload = json.loads(run.call_args.kwargs['input'])
+    summary = jobs.load_job_status(state)['jobs']['work']
+    assert run.call_args.args[0] == ['fixture']
+    assert 'fixture private value' not in (state / jobs.STATUS_NAME).read_text()
+    if source == 'private':
+        assert base64.b64decode(payload['proposal_template']) == b'fixture private value'
+        assert 'proposal' not in summary
+    else:
+        assert payload == {'job': 'work'}
+        assert summary['proposal'] == {'status': 'invalid_template'}
+
+
+@pytest.mark.parametrize('proposal', [
+    {'status': 'draft_created', 'version_id': 'f' * 32, 'notice': 'secret-response'},
+    {'status': 'draft_created', 'version_id': 'f' * 32},
+    {'status': 'already_proposed', 'version_id': 'private-configuration', 'notice': 'unknown'},
+    {'status': 'no_eligible_template_match', 'webhook': 'fixture-leak'},
+])
+def test_proposal_summary_rejects_untrusted_job_payloads(proposal):
+    value = {'job': 'work', 'status': 'completed', 'execution_allowed': False, 'proposal': proposal}
+    with pytest.raises(ValueError, match='invalid_proposal_status'):
+        jobs._safe_result(SimpleNamespace(stdout=json.dumps(value), returncode=0), 'work')
+
+
 def test_explicit_excerpt_is_given_to_worker_only_via_stdin(state):
     raw = '待核验的正文节选'.encode()
     artifact = state / 'excerpt.json'
@@ -270,7 +329,10 @@ def child(payload, hour=9, run_result=None, request_error=None, news_error=None,
     class Error(ValueError): pass
     research.ResearchError = Error
     store = Mock(); store.request_run.return_value = {'status':'queued','id':'a'*32}
-    if request_error: store.request_run.side_effect = Error(request_error)
+    store.request_scheduled_run.return_value = store.request_run.return_value
+    if request_error:
+        store.request_run.side_effect = Error(request_error)
+        store.request_scheduled_run.side_effect = Error(request_error)
     research.ResearchStore = Mock(return_value=store)
     news = ModuleType('app.ashare.news'); news.ingest_news = Mock(return_value={'receipt_id':'b'*32,'item_count':0,'source_hash':'c'*64})
     class NewsError(ValueError): pass
@@ -327,7 +389,7 @@ def test_daily_request_explicit_scope_same_day_key():
     code,result,research,news,_=child(payload)
     assert code == 0 and result['status'] == 'queued'
     assert research.ResearchStore.call_args.args[1:] == ('user:7','paper')
-    research.ResearchStore.return_value.request_run.assert_called_once_with('scheduled-20261118')
+    research.ResearchStore.return_value.request_scheduled_run.assert_called_once_with(datetime(2026, 11, 18).date())
     research.run_once.assert_not_called();news.ingest_news.assert_not_called()
 
 
@@ -341,7 +403,7 @@ def test_daily_request_before_window_cannot_charge_or_query():
 def test_daily_request_budget_is_terminal_skip(reason,status):
     code,result,research,_,_=child(jobs._request('user:7','paper',None,True),request_error=reason)
     assert code == 0 and result['status'] == status
-    research.ResearchStore.return_value.request_run.assert_called_once()
+    research.ResearchStore.return_value.request_scheduled_run.assert_called_once()
 
 
 @pytest.mark.parametrize('payload',[{'job':'work','tenant_id':'user:7'},{'job':'request'},{'job':'news','date':'2020-01-01'}])

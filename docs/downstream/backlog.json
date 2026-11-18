@@ -11,7 +11,7 @@
     {
       "id": "durable_paper_deployment",
       "status": "accepted",
-      "acceptance": "Persistent local paper-only deployment, restart, backup and restore evidence in LONGRUN_ACCEPTANCE_CN.md."
+      "acceptance": "Ubuntu 24.04 cloud cutover verified at 20:20 Asia/Shanghai, release c5187ef. Four healthy services, six timers, 20 stable table fingerprints and model settings match, verified public HTTPS and restricted read-only monitoring. Local source stopped and retained. See LONGRUN_ACCEPTANCE_CN.md."
     },
     {
       "id": "historical_dated_universe",
@@ -36,7 +36,7 @@
     {
       "id": "natural_multiday_validation",
       "status": "observing",
-      "acceptance": "Nov17 managed observations cover the afternoon; earlier trial receipts are separate. Nov18 morning and afternoon had 1290 and 1247 usable batches, 1 and 37 stale batches, and maximum usable-receipt gaps of 16.123 and 19.564 seconds. The archive estimates fresh-batch availability at 99.6% and 49.5%, respectively. The natural Nov18 report reconciled. More observation days and reliable intraday quality are pending."
+      "acceptance": "Nov17 managed observations cover the afternoon; earlier trial receipts are separate. Nov18 morning and afternoon had 1290 and 1247 usable batches, 1 and 37 stale batches, and maximum usable-receipt gaps of 16.123 and 19.564 seconds. The archive estimates fresh-batch availability at 99.6% and 49.5%, respectively. The natural Nov18 report reconciled. More observation days and reliable intraday quality are pending. Source receipts were rechecked after cloud migration. Cloud observation starts with the next trading day and needs five complete healthy natural sessions."
     },
     {
       "id": "certified_intraday_security_status",
@@ -46,7 +46,7 @@
     {
       "id": "reliable_theme_membership",
       "status": "partial_real_current_observation",
-      "acceptance": "Real current receipts: BK0800 人工智能 Nov17 (758 provider / 730 supported / 28 excluded), BK1090 机器人概念 Nov18 (840 / 796 / 44), BK0493 新能源 Nov18 (220 / 215 / 5). Raw pages and DB members verified, readable in the archive browser. Nightly collection implemented separately; first natural evening execution, historical coverage and account preference mapping remain pending; see THEMES_ACCEPTANCE_CN.md."
+      "acceptance": "Verified current Eastmoney receipts for AI, robotics and new energy. The first Nov18 evening schedule verified 731 AI and 796 robotics members; new energy failed and its earlier receipt remains available. Complete nightly and historical coverage remain open; see THEMES_ACCEPTANCE_CN.md."
     },
     {
       "id": "scheduled_news_ingestion",
@@ -61,12 +61,22 @@
     {
       "id": "recommendations_and_approval",
       "status": "deployed_pending_user_approval",
-      "acceptance": "Evidence-linked research and human-controlled buy-once strategies are deployed locally. A paper draft can bind an exact completed candidate through the research run ID and both hashes. An isolated real backup verified authenticated draft creation. Nov18 rollout preserved the archive and left the production strategy list empty. Actual user approval, automated proposal generation and evaluation remain open."
+      "acceptance": "Evidence-linked research, exact-version HTTPS review links and human-controlled paper strategies are on the cloud. Authentication and the exact browser target were verified in isolation. Production has no approved or active strategy. Actual user approval and card delivery remain open."
     },
     {
       "id": "approved_strategy_auto_paper",
       "status": "deployed_pending_natural_order",
-      "acceptance": "The locally deployed worker supports one simulated buy per immutable version after explicit human approval and activation. Draft creation, approval and activation precheck the fee-inclusive cap. Submission rechecks the exact hash, reserve, available cash, fresh accepted quote and current human-reviewed rules. The Nov18 17:57 release added the exact order's status, fills, fees and reserve to version detail. Controlled cases verified partial fill, expiry and revocation. Actual user activation and a naturally triggered order remain pending."
+      "acceptance": "The deployed cloud worker supports one simulated buy per immutable version after explicit human approval and activation. Draft creation, approval and activation precheck the fee-inclusive cap. Submission rechecks the exact hash, reserve, available cash, fresh accepted quote and current human-reviewed rules. The Nov18 17:57 release added the exact order's status, fills, fees and reserve to version detail. Controlled cases verified partial fill, expiry and revocation. Actual user activation and a naturally triggered order remain pending."
+    },
+    {
+      "id": "scheduled_strategy_draft_review",
+      "status": "implemented_pending_deployment",
+      "acceptance": "Isolated end-to-end scheduled job with PostgreSQL and simulated model/Feishu verified one draft per scheduled research, exact review card and recovery without duplicate send. Requires a private user-scoped template, deployment, and observed first real candidate/card."
+    },
+    {
+      "id": "strategy_execution_evaluation",
+      "status": "implemented_pending_deployment",
+      "acceptance": "Read-only authenticated exact-version API and workspace view reconcile simulated orders, fills and fees. Human review suggestion requires linked post-submission wall-clock evidence. No PnL when necessary evidence is missing. Production deployment, daily digest integration, and natural result remain open."
     },
     {
       "id": "strategy_optimization",
@@ -91,7 +101,7 @@
     {
       "id": "feishu_delivery",
       "status": "user_configured_unverified",
-      "acceptance": "Webhook is configured. The durable receipt release deployed locally on Nov18 at 16:12. Both existing reports retain their original content with no observed receipt. Future natural webhook acceptance and actual group display remain open."
+      "acceptance": "Webhook is configured. The durable receipt release deployed locally on Nov18 at 16:12. Both existing reports retain their original content with no observed receipt. Future natural webhook acceptance and actual group display remain open. Cloud HTTPS and signed account configuration were verified on Nov18. No extra test or historical resend was triggered."
     },
     {
       "id": "calendar_2027",
@@ -125,8 +135,8 @@
     },
     {
       "id": "scheduled_theme_collection",
-      "status": "installed_pending_natural_run",
-      "acceptance": "Daily 20:10 Asia/Shanghai fixed three-theme job with verified archive and no same-window repeats. A network-disabled SIGKILL rehearsal verified exact container cleanup, read-only recovery of the original board, and refusal when the journal is missing. First natural provider run and full host disaster recovery remain open; see THEMES_ACCEPTANCE_CN.md."
+      "status": "observed_partial",
+      "acceptance": "The first natural Nov18 evening run verified two of three configured boards. The failed new-energy request was not repeated that evening. The network-disabled SIGKILL rehearsal verified exact container cleanup and one-attempt recovery. Full coverage and host disaster recovery remain open."
     }
   ]
 }
