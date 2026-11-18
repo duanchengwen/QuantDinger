@@ -4,7 +4,7 @@
   "workflow_policy": {
     "execution": "paper_only",
     "new_strategy_activation": "explicit_human_approval",
-    "approved_strategy_auto_paper": "implemented_pending_local_deployment",
+    "approved_strategy_auto_paper": "deployed_pending_user_activation",
     "ai_auto_promotion": false
   },
   "items": [
@@ -36,7 +36,7 @@
     {
       "id": "natural_multiday_validation",
       "status": "observing",
-      "acceptance": "At least five actual trading dates, partial first day separate; inspect per-session gaps, source evidence, reports and reconciliation. Sample date count alone is insufficient."
+      "acceptance": "Nov17 managed observations covered only the afternoon; earlier trial receipts are separate. Nov18 morning archive verified 1290 usable batches, one stale opening batch and a maximum usable-receipt gap of 16.123 seconds. Afternoon and at least five natural trading days still require per-session, report and ledger checks."
     },
     {
       "id": "certified_intraday_security_status",
@@ -51,7 +51,7 @@
     {
       "id": "scheduled_news_ingestion",
       "status": "accepted_limited_scope",
-      "acceptance": "CNinfo title-only three-topic bounded ingestion and immutable original JSON/PDF evidence accepted with 8 actual items, 2 declared oversized exclusions. 07:00–22:30 half-hour local timer installed; First natural collection verified at 08:00 China time on Nov18 with 8 items and a matching raw archive hash. Full-text and broad timely industry news remain open. See NEWS_RESEARCH_ACCEPTANCE_CN.md."
+      "acceptance": "CNinfo title-only three-topic ingestion retains original JSON/PDF records. First scheduled capture at 08:00 China time on Nov18 has 8 verified items and 2 oversized exclusions. Offline parsing recovered Chinese text from the first three pages of all 8 sample PDFs. Production body extraction and broad timely industry news remain open. See NEWS_RESEARCH_ACCEPTANCE_CN.md."
     },
     {
       "id": "deepseek_research_agent",
@@ -60,13 +60,13 @@
     },
     {
       "id": "recommendations_and_approval",
-      "status": "implemented_pending_local_deployment",
-      "acceptance": "Evidence-linked research is deployed. The paper workspace adds immutable buy-once rule versions with explicit human approval and revocation bound to the exact configuration SHA-256. PostgreSQL integration and frontend build passed. Local deployment and real user approval remain pending. Executable strategy generation/evaluation and automatic paper execution remain separate work."
+      "status": "deployed_pending_user_approval",
+      "acceptance": "Evidence-linked research and immutable buy-once strategy versions are deployed locally. Human approval and revocation bind the exact version and configuration SHA-256. The actual authenticated endpoint and strategy browser bundle passed on Nov18 with no versions or decisions recorded. User approval, executable strategy generation and evaluation remain open."
     },
     {
       "id": "approved_strategy_auto_paper",
-      "status": "implemented_pending_local_deployment",
-      "acceptance": "The managed worker supports one simulated buy order per immutable buy-once version after explicit human approval and activation. The exact hash, full fee-inclusive reserve, fresh accepted quote and current human-reviewed rules are checked before submission. Revocation cancels the unfilled remainder atomically. Controlled PostgreSQL tests passed; local rollout, actual activation and naturally triggered orders remain pending."
+      "status": "deployed_pending_natural_order",
+      "acceptance": "The locally deployed worker supports one simulated buy per immutable version after explicit human approval and activation. It checks the exact hash, fee-inclusive reserve, fresh accepted quote and current human-reviewed rules. Revocation cancels the unfilled remainder atomically. Accounts, ledger and private model settings were preserved, and no strategy was active after rollout. Actual user activation and a naturally triggered order remain pending."
     },
     {
       "id": "strategy_optimization",

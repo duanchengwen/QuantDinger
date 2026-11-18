@@ -64,3 +64,13 @@ Python 3.11 and 3.12 each pass **136 focused tests**, including all professional
 A bounded read-only theme audit identified AKShare Eastmoney concept directory/current-member adapters. One successful directory probe reported total554 but returned100 rows; a first-page miss cannot establish theme absence. Production uses AKShare1.19.1, development1.20.65. Complete bounded pagination, versioned mapping and raw evidence remain pending. Current members cannot be backfilled into historical dates; times before first receipt must remain unobserved.
 
 The local image was rebuilt and deployed. Eight deterministic in-container assertions and both changed source-file hashes passed. A pre-upgrade backup completed; five account/order/fill/user-session table fingerprints and the user model-settings file hash remained unchanged. No credential or model selection was changed. Deployment proof: `news-timestamps-deployed-proof.json`.
+
+## November 18 lunch-break strategy deployment
+
+Local deployment of application revision `cc20bba96dc8f81e539bfe5115cdac7112a5ab93` completed at 11:32 China time. The pre-upgrade backup passed verification. All four services were healthy, eight account and ledger table fingerprints matched, and the private model settings checksum matched. The served strategy browser bundle and three HTTP authorization checks passed. All three new tables for versions, human decisions and activations were empty.
+
+Python 3.11 and 3.12 each passed 489 focused tests. The frontend passed 41 tests, ESLint and its production build. A rehearsal restored real backup data into an isolated database and verified forward migration and rollback with empty strategy tables. The **Strategy Versions** tab supports a buy-once rule with explicit human approval and a separate activation. User approval, activation and a naturally triggered order remain pending. Execution uses virtual funds only. Live trading, broker connections and AI promotion remain prohibited.
+
+The November 18 morning archive contained 1,290 usable quote batches and one stale opening batch. The longest usable-receipt gap was 16.123 seconds. The formal November 17 observations cover the afternoon only. Afternoon coverage, end-of-day reports and the five natural trading days still need per-day verification.
+
+Local evidence in the parent workspace's `work/quantdinger-natural-acceptance/` includes `strategy-production-deployment-20261118.json`, `strategy-upgrade-rehearsal-20261118.json` and `coverage-20261118-morning-close.json`.
