@@ -61,7 +61,7 @@
     {
       "id": "recommendations_and_approval",
       "status": "deployed_pending_user_approval",
-      "acceptance": "Evidence-linked research and human-controlled buy-once strategies are available. A paper draft can now bind an exact completed candidate through the research run ID and both hashes. A restored real backup verified draft creation through the authenticated endpoint with no decisions or activations written. Actual user approval, automated proposal generation and evaluation remain open."
+      "acceptance": "Evidence-linked research and human-controlled buy-once strategies are deployed locally. A paper draft can bind an exact completed candidate through the research run ID and both hashes. An isolated real backup verified authenticated draft creation. Nov18 rollout preserved the archive and left the production strategy list empty. Actual user approval, automated proposal generation and evaluation remain open."
     },
     {
       "id": "approved_strategy_auto_paper",
