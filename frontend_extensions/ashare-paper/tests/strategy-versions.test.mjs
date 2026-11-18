@@ -51,6 +51,21 @@ test('a viewer cannot save or record a decision', async () => {
   await state.decide({}, 'approved')
 })
 
+test('activation uses a separate, explicit confirmation', async () => {
+  const version = { id: 'a'.repeat(32), config_sha256: 'f'.repeat(64), status: 'approved' }
+  const calls = []
+  const state = mount((...args) => {
+    calls.push(args)
+    return { ...version, execution_allowed: true }
+  })
+  state.confirmDecision(version, 'activated')
+  assert.equal(calls.length, 0)
+  assert.ok(state.dialog.content.includes('ashare.strategyActivateConfirm'))
+  await state.dialog.onOk()
+  assert.equal(calls[0][2].decision, 'activated')
+  assert.equal(state.versionStatus(state.selected), 'ashare.strategyStatus.activated')
+})
+
 test('retry an uncertain draft save with the same request key', async () => {
   const requests = []
   const state = mount((path, method, data) => {

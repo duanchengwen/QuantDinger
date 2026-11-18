@@ -98,12 +98,12 @@ def claim_worker(connection, config: dict) -> None:
             raise ValueError("A paper worker already owns this account")
 
 
-def process_quotes(broker, config: dict, quotes: list[dict], now: datetime) -> dict:
+def process_quotes(broker, config: dict, quotes: list[dict], now: datetime, *, strategy_versions=None) -> dict:
     """Process only reviewed fresh quotes; no strategy promotion or broker factory."""
     from app.ashare.market import validate_quote
 
     result = {"observed_at": now.isoformat(), "mode": "paper", "fills": [], "rejections": [],
-              "config_sha256": config["config_sha256"], "submitted": []}
+              "config_sha256": config["config_sha256"], "submitted": [], "strategy_rejections": []}
     received = {q["symbol"] for q in quotes}
     for missing in set(config["symbols"]) - received:
         result["rejections"].append({"symbol": missing, "reason": "missing_quote"})
@@ -120,6 +120,13 @@ def process_quotes(broker, config: dict, quotes: list[dict], now: datetime) -> d
                 if quote.get(key) is not None and Decimal(str(quote[key])) != Decimal(str(rules[key])):
                     raise ValueError("Quote price band contradicts reviewed rules")
             result["fills"].extend(broker.on_quote(quote, rules, now=now))
+            if strategy_versions is not None:
+                try:
+                    order = strategy_versions.submit_on_quote(quote, rules)
+                    if order is not None:
+                        result["submitted"].append(order)
+                except ValueError as exc:
+                    result["strategy_rejections"].append({"symbol": symbol, "reason": str(exc)[:250]})
             strategy = config.get("strategy", {})
             if strategy.get("enabled") and strategy["symbol"] == symbol:
                 order_key = "example-" + strategy["id"]

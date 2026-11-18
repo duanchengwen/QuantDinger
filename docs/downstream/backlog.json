@@ -4,7 +4,7 @@
   "workflow_policy": {
     "execution": "paper_only",
     "new_strategy_activation": "explicit_human_approval",
-    "approved_strategy_auto_paper": "planned",
+    "approved_strategy_auto_paper": "implemented_pending_local_deployment",
     "ai_auto_promotion": false
   },
   "items": [
@@ -65,8 +65,8 @@
     },
     {
       "id": "approved_strategy_auto_paper",
-      "status": "pending",
-      "acceptance": "Approved immutable strategy version, account risk budgets, broker interface, idempotent automatic PAPER orders, rollback and audit."
+      "status": "implemented_pending_local_deployment",
+      "acceptance": "The managed worker supports one simulated buy order per immutable buy-once version after explicit human approval and activation. The exact hash, full fee-inclusive reserve, fresh accepted quote and current human-reviewed rules are checked before submission. Revocation cancels the unfilled remainder atomically. Controlled PostgreSQL tests passed; local rollout, actual activation and naturally triggered orders remain pending."
     },
     {
       "id": "strategy_optimization",

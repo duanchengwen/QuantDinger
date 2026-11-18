@@ -1,6 +1,11 @@
 const en = {
   "ashare.strategyVersions": "Strategy versions",
-  "ashare.strategyVersionHelp": "The buy-once rule records a limit order specification for when the last price reaches or falls below the threshold. The cash cap includes fees. This approval panel records decisions for the exact version. Automatic execution is pending.",
+  "ashare.strategyVersionHelp": "Save, approve, then enable one simulated buy rule. The trigger, limit price, quantity and cash cap including fees belong to the exact version. Order submission requires a fresh quote and human-reviewed daily security rules.",
+  "ashare.strategyActivate": "Enable automatic paper order",
+  "ashare.strategyActivateConfirm": "Enable at most one simulated order for this version when the approved conditions are met.",
+  "ashare.strategyRevokeConfirm": "Revoke the version and cancel any remaining open portion of its simulated order.",
+  "ashare.strategyActivatedAt": "Enabled at",
+  "ashare.strategyStatus.activated": "Enabled for paper",
   "ashare.strategyThreshold": "Trigger price (CNY)",
   "ashare.strategyMaxCash": "Cash cap including fees (CNY)",
   "ashare.strategySaveDraft": "Save draft",
@@ -187,7 +192,12 @@ const en = {
 }
 const zh = {
   "ashare.strategyVersions": "策略版本",
-  "ashare.strategyVersionHelp": "单次买入规则记录当最新价达到或低于触发价时的限价委托参数，资金上限含费用。此处记录具体版本的审批，可撤销已批准的版本。自动执行待接入。",
+  "ashare.strategyVersionHelp": "保存并批准版本后，可启用单次模拟买入。触发价、限价、股数和含费上限绑定具体版本。提交委托前须有新鲜行情和当天人工审核的证券规则。",
+  "ashare.strategyActivate": "启用自动模拟委托",
+  "ashare.strategyActivateConfirm": "满足已批准条件时，此版本最多自动提交一笔模拟委托。",
+  "ashare.strategyRevokeConfirm": "撤销该版本，并取消其模拟委托仍未成交的部分。",
+  "ashare.strategyActivatedAt": "启用时间",
+  "ashare.strategyStatus.activated": "已启用模拟",
   "ashare.strategyThreshold": "触发价（元）",
   "ashare.strategyMaxCash": "含费资金上限（元）",
   "ashare.strategySaveDraft": "保存草稿",
@@ -374,7 +384,12 @@ const zh = {
 }
 const tw = {
   "ashare.strategyVersions": "策略版本",
-  "ashare.strategyVersionHelp": "單次買入規則記錄當最新價達到或低於觸發價時的限價委託參數，資金上限含費用。此處記錄具體版本的審批，可撤銷已批准的版本。自動執行待接入。",
+  "ashare.strategyVersionHelp": "儲存並批准版本後，可啟用單次模擬買入。觸發價、限價、股數和含費上限綁定具體版本。提交委託前須有新鮮行情和當天人工審核的證券規則。",
+  "ashare.strategyActivate": "啟用自動模擬委託",
+  "ashare.strategyActivateConfirm": "符合已批准條件時，此版本最多自動提交一筆模擬委託。",
+  "ashare.strategyRevokeConfirm": "撤銷該版本，並取消其模擬委託尚未成交的部分。",
+  "ashare.strategyActivatedAt": "啟用時間",
+  "ashare.strategyStatus.activated": "已啟用模擬",
   "ashare.strategyThreshold": "觸發價（元）",
   "ashare.strategyMaxCash": "含費資金上限（元）",
   "ashare.strategySaveDraft": "儲存草稿",

@@ -375,6 +375,15 @@ def test_immutable_strategy_version_human_approval_and_revocation(client):
     assert call(client, decision_path, revocation).json["data"] == revoked
     assert call(client, decision_path, approval).json["msg"] == "invalid_strategy_state_transition"
     assert call(client, other_decision, approval).json["data"]["status"] == "approved"
+    activation = {**approval, "decision": "activated"}
+    assert call(client, other_decision, activation, token="viewer").status_code == 403
+    assert call(client, other_decision, {**activation, "config_sha256": "0" * 64}).status_code == 400
+    enabled = call(client, other_decision, activation).json["data"]
+    assert enabled["execution_allowed"] is True and enabled["activated_by"] == client.test_user
+    assert call(client, other_decision, activation).json["data"] == enabled
+    override = {"client_order_id": "managed-strategy-" + other_draft["id"],
+                "symbol": "sz.000001", "side": "buy", "quantity": 100, "limit_price": "9.99"}
+    assert call(client, "/orders", override).json["msg"] == "reserved_strategy_order_key"
     account = call(client, "/state", method="GET").json["data"]
     assert account["orders"] == [] and account["account"]["cash"] == "10000.00"
 

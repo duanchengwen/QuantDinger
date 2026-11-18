@@ -23,6 +23,7 @@ from app.ashare.notifications import notify_text
 from app.ashare.operations import complete_daily_reports, reconcile_account, record_poll, write_heartbeat
 from app.ashare.runtime import claim_worker, process_quotes, utc_now
 from app.ashare.schema import get_database_url
+from app.ashare.strategy_versions import StrategyVersions
 from app.ashare.web_store import WebStore
 
 
@@ -104,8 +105,11 @@ class ManagedWorker:
                     latest_rules = store.state()["rules"]
                     config = {"symbols": symbols, "rules": latest_rules, "strategy": {"enabled": False}}
                     config["config_sha256"] = hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()
-                    result = process_quotes(store.broker, config, quotes, observed)
-                    worker.update(state=result["state"], fills=result["fills"], rejections=result["rejections"])
+                    versions = StrategyVersions(self.connection, tenant_id, account_id, clock=lambda: now or self.clock())
+                    result = process_quotes(store.broker, config, quotes, observed, strategy_versions=versions)
+                    worker.update(state=result["state"], fills=result["fills"], rejections=result["rejections"],
+                                  strategy_submitted=[order["id"] for order in result["submitted"]],
+                                  strategy_rejections=result["strategy_rejections"])
                     if any(latest_rules.get(symbol, {}).get("trading_day") != session["trading_day"]
                            or latest_rules.get(symbol, {}).get("reviewed") is not True for symbol in symbols):
                         worker["state"] = "awaiting_review"

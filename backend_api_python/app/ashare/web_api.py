@@ -8,6 +8,7 @@ from flask import Blueprint, g, jsonify, request
 import psycopg2
 
 from app.utils.auth import login_required
+from app.ashare.broker import STRATEGY_ORDER_PREFIX
 from app.ashare.market import validate_quote
 from app.ashare.runtime import SHANGHAI, reviewed_rules
 from app.ashare.web_store import WebStore
@@ -349,6 +350,8 @@ def decide_strategy_version(store, version_id):
 @endpoint(write=True)
 def order(store):
     data = body({"client_order_id", "symbol", "side", "quantity", "limit_price"})
+    if isinstance(data.get("client_order_id"), str) and data["client_order_id"].startswith(STRATEGY_ORDER_PREFIX):
+        raise ValueError("reserved_strategy_order_key")
     now = datetime.now(timezone.utc)
     # Exact retries remain valid after their rows leave the bounded UI history.
     previous = store.broker.find_order(data["client_order_id"])

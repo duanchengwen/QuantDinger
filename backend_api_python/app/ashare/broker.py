@@ -11,6 +11,7 @@ from psycopg2.extras import RealDictCursor
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 CENT = Decimal("0.01")
+STRATEGY_ORDER_PREFIX = "managed-strategy-"
 DEFAULT_FEES = {
     "commission_rate": "0.0003", "minimum_commission": "5",
     "sell_tax_rate": "0.0005", "transfer_rate": "0.00001",
@@ -92,7 +93,8 @@ class PaperBroker:
         if isinstance(trading_day, str):
             trading_day = date.fromisoformat(trading_day)
         price = money(limit_price)
-        if not client_order_id or len(client_order_id) > 160 or not supported(symbol):
+        if (not client_order_id or len(client_order_id) > 160 or client_order_id.startswith(STRATEGY_ORDER_PREFIX)
+                or not supported(symbol)):
             raise ValueError("invalid id or unsupported A-share symbol")
         if side not in ("buy", "sell") or type(quantity) is not int or quantity <= 0 or quantity % 100:
             raise ValueError("only positive 100-share lots are supported")
@@ -102,31 +104,38 @@ class PaperBroker:
             raise ValueError("order trading day mismatch")
         with self.connection, self._cursor() as cursor:
             account = self._account(cursor)
-            cursor.execute("SELECT * FROM qd_ashare_orders WHERE tenant_id=%s AND account_id=%s AND client_order_id=%s", (*self.key, client_order_id))
-            existing = cursor.fetchone()
-            if existing:
-                if any(existing[key] != value for key, value in {"symbol": symbol, "side": side, "quantity": quantity, "limit_price": price,
-                                                               "submitted_at": submitted_at, "trading_day": trading_day}.items()):
-                    raise ValueError("idempotency key payload conflict")
-                return dict(existing)
-            reserve = Decimal("0")
-            if side == "buy":
-                notional = price * quantity
-                reserve = notional + sum(self._costs(notional, side))
-                if reserve > account["cash"] - account["reserved_cash"]:
-                    raise ValueError("insufficient available cash")
-            else:
-                cursor.execute("SELECT COALESCE(SUM(quantity),0) AS qty FROM qd_ashare_lots WHERE tenant_id=%s AND account_id=%s AND symbol=%s AND acquired_day<%s", (*self.key, symbol, trading_day))
-                settled = cursor.fetchone()["qty"]
-                cursor.execute("SELECT COALESCE(SUM(quantity-filled),0) AS qty FROM qd_ashare_orders WHERE tenant_id=%s AND account_id=%s AND symbol=%s AND side='sell' AND status IN ('open','partial')", (*self.key, symbol))
-                if quantity > settled - cursor.fetchone()["qty"]:
-                    raise ValueError("insufficient T+1 available shares")
-            cursor.execute("UPDATE qd_ashare_accounts SET reserved_cash=reserved_cash+%s WHERE tenant_id=%s AND account_id=%s", (reserve, *self.key))
-            cursor.execute("INSERT INTO qd_ashare_orders(tenant_id,account_id,client_order_id,symbol,side,quantity,limit_price,submitted_at,trading_day,status,reserved_cash) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'open',%s) RETURNING *",
-                           (*self.key, client_order_id, symbol, side, quantity, price, submitted_at, trading_day, reserve))
-            order = dict(cursor.fetchone())
-            self._audit(cursor, "order_placed", {"id": order["id"], "client_order_id": client_order_id})
-            return order
+            return self._place_order_locked(cursor, account, client_order_id, symbol, side, quantity,
+                                            price, submitted_at, trading_day)
+
+    def _place_order_locked(self, cursor, account, client_order_id, symbol, side, quantity, price,
+                            submitted_at, trading_day, *, max_cash=None):
+        """Insert with the caller already holding the account row and validating inputs."""
+        existing = self._find_order(cursor, client_order_id)
+        if existing:
+            if any(existing[key] != value for key, value in {"symbol": symbol, "side": side, "quantity": quantity, "limit_price": price,
+                                                           "submitted_at": submitted_at, "trading_day": trading_day}.items()):
+                raise ValueError("idempotency key payload conflict")
+            return dict(existing)
+        reserve = Decimal("0")
+        if side == "buy":
+            notional = price * quantity
+            reserve = notional + sum(self._costs(notional, side))
+            if max_cash is not None and reserve > max_cash:
+                raise ValueError("strategy_cash_cap_exceeded")
+            if reserve > account["cash"] - account["reserved_cash"]:
+                raise ValueError("insufficient available cash")
+        else:
+            cursor.execute("SELECT COALESCE(SUM(quantity),0) AS qty FROM qd_ashare_lots WHERE tenant_id=%s AND account_id=%s AND symbol=%s AND acquired_day<%s", (*self.key, symbol, trading_day))
+            settled = cursor.fetchone()["qty"]
+            cursor.execute("SELECT COALESCE(SUM(quantity-filled),0) AS qty FROM qd_ashare_orders WHERE tenant_id=%s AND account_id=%s AND symbol=%s AND side='sell' AND status IN ('open','partial')", (*self.key, symbol))
+            if quantity > settled - cursor.fetchone()["qty"]:
+                raise ValueError("insufficient T+1 available shares")
+        cursor.execute("UPDATE qd_ashare_accounts SET reserved_cash=reserved_cash+%s WHERE tenant_id=%s AND account_id=%s", (reserve, *self.key))
+        cursor.execute("INSERT INTO qd_ashare_orders(tenant_id,account_id,client_order_id,symbol,side,quantity,limit_price,submitted_at,trading_day,status,reserved_cash) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'open',%s) RETURNING *",
+                       (*self.key, client_order_id, symbol, side, quantity, price, submitted_at, trading_day, reserve))
+        order = dict(cursor.fetchone())
+        self._audit(cursor, "order_placed", {"id": order["id"], "client_order_id": client_order_id})
+        return order
 
     def _release(self, cursor, order, status):
         cursor.execute("UPDATE qd_ashare_accounts SET reserved_cash=reserved_cash-%s WHERE tenant_id=%s AND account_id=%s", (order["reserved_cash"], *self.key))
@@ -213,9 +222,19 @@ class PaperBroker:
                 self._release(cursor, expired, "expired")
             cursor.execute("SELECT * FROM qd_ashare_orders WHERE tenant_id=%s AND account_id=%s AND symbol=%s AND trading_day=%s AND status IN ('open','partial') ORDER BY submitted_at,id", (*self.key, quote["symbol"], day))
             orders = cursor.fetchall()
+            strategy_allowed = False
+            if any(order["client_order_id"].startswith(STRATEGY_ORDER_PREFIX) for order in orders):
+                # A review can change after the worker reads it. Hold the web row until matching commits.
+                cursor.execute("SELECT rules -> %s AS rule FROM qd_ashare_web WHERE tenant_id=%s AND account_id=%s FOR UPDATE",
+                               (quote["symbol"], *self.key))
+                reviewed = cursor.fetchone()
+                strategy_allowed = (reviewed is not None and reviewed["rule"] == rules
+                                    and rules.get("approval_method") == "explicit_human_review")
             capacities = {"buy": quote["ask_size"], "sell": quote["bid_size"]}
             fills = []
             for order in orders:
+                if order["client_order_id"].startswith(STRATEGY_ORDER_PREFIX) and not strategy_allowed:
+                    continue
                 side = order["side"]
                 price = money(quote["ask" if side == "buy" else "bid"])
                 if timestamp <= order["submitted_at"] or not lower <= price <= upper:
@@ -270,10 +289,13 @@ class PaperBroker:
     def find_order(self, client_order_id):
         """Look up an idempotency key without relying on a bounded UI history."""
         with self.connection, self._cursor() as cursor:
-            cursor.execute("SELECT * FROM qd_ashare_orders WHERE tenant_id=%s AND account_id=%s AND client_order_id=%s",
-                           (*self.key, client_order_id))
-            row = cursor.fetchone()
-            return dict(row) if row else None
+            return self._find_order(cursor, client_order_id)
+
+    def _find_order(self, cursor, client_order_id):
+        cursor.execute("SELECT * FROM qd_ashare_orders WHERE tenant_id=%s AND account_id=%s AND client_order_id=%s",
+                       (*self.key, client_order_id))
+        row = cursor.fetchone()
+        return dict(row) if row else None
 
     def snapshot(self, history_limit=None, *, include_audit=True):
         """Return active state and optional bounded history; never trim open orders."""

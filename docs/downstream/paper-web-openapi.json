@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "A-share human paper API",
-    "version": "0.7.0",
+    "version": "0.8.0",
     "description": "Human JWT only; tenant derives from verified user. Real brokerage and Agent writes remain disabled."
   },
   "servers": [
@@ -293,7 +293,9 @@
           "approved_at",
           "approved_by",
           "revoked_at",
-          "revoked_by"
+          "revoked_by",
+          "activated_at",
+          "activated_by"
         ],
         "additionalProperties": false,
         "properties": {
@@ -325,9 +327,7 @@
           },
           "execution_allowed": {
             "type": "boolean",
-            "enum": [
-              false
-            ]
+            "description": "An explicit activation exists and the version has not been revoked. The worker also requires fresh quotes, today’s human rules and available risk budget."
           },
           "approved_at": {
             "type": "string",
@@ -344,6 +344,15 @@
             "nullable": true
           },
           "revoked_by": {
+            "type": "integer",
+            "nullable": true
+          },
+          "activated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "activated_by": {
             "type": "integer",
             "nullable": true
           }
@@ -495,7 +504,7 @@
     },
     "/orders": {
       "post": {
-        "summary": "/orders",
+        "summary": "/orders Strategy idempotency keys are reserved for the worker.",
         "responses": {
           "200": {
             "description": "Human envelope code=1, data; notifications never expose credentials"
@@ -1303,7 +1312,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Read-only or approval record with no execution capability",
+            "description": "Strategy version and its human decisions",
             "content": {
               "application/json": {
                 "schema": {
@@ -1373,7 +1382,7 @@
         },
         "responses": {
           "200": {
-            "description": "Read-only or approval record with no execution capability",
+            "description": "Strategy version and its human decisions",
             "content": {
               "application/json": {
                 "schema": {
@@ -1413,7 +1422,7 @@
     },
     "/strategy-versions/{version_id}/decision": {
       "post": {
-        "summary": "Explicitly approve or revoke the exact version hash",
+        "summary": "Explicitly approve, enable for PAPER execution, or revoke an exact strategy version",
         "parameters": [
           {
             "name": "version_id",
@@ -1446,6 +1455,7 @@
                     "type": "string",
                     "enum": [
                       "approved",
+                      "activated",
                       "revoked"
                     ]
                   },
@@ -1462,7 +1472,7 @@
         },
         "responses": {
           "200": {
-            "description": "Read-only or approval record with no execution capability",
+            "description": "Strategy version and its human decisions",
             "content": {
               "application/json": {
                 "schema": {

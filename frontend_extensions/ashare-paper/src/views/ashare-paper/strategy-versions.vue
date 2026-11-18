@@ -33,7 +33,7 @@
       <a-form-item :label="t('strategyVersions')">
         <a-select v-model="selectedId" :disabled="loading || busy" :placeholder="t('noData')">
           <a-select-option v-for="version in versions" :key="version.id" :value="version.id">
-            {{ version.config.symbol }} · {{ t('strategyStatus.' + version.status) }} · {{ formatTime(version.created_at) }}
+            {{ version.config.symbol }} · {{ versionStatus(version) }} · {{ formatTime(version.created_at) }}
           </a-select-option>
         </a-select>
       </a-form-item>
@@ -47,12 +47,15 @@
         <dt>{{ t('strategyThreshold') }}</dt><dd>{{ selected.config.threshold }}</dd>
         <dt>{{ t('price') }}</dt><dd>{{ selected.config.limit_price }}</dd>
         <dt>{{ t('strategyMaxCash') }}</dt><dd>{{ selected.config.max_cash }}</dd>
-        <dt>{{ t('status') }}</dt><dd>{{ t('strategyStatus.' + selected.status) }}</dd>
+        <dt>{{ t('status') }}</dt><dd>{{ versionStatus(selected) }}</dd>
         <template v-if="selected.approved_at">
           <dt>{{ t('strategyApprovedAt') }}</dt><dd>{{ formatTime(selected.approved_at) }}</dd>
         </template>
         <template v-if="selected.revoked_at">
           <dt>{{ t('strategyRevokedAt') }}</dt><dd>{{ formatTime(selected.revoked_at) }}</dd>
+        </template>
+        <template v-if="selected.activated_at">
+          <dt>{{ t('strategyActivatedAt') }}</dt><dd>{{ formatTime(selected.activated_at) }}</dd>
         </template>
       </dl>
       <a-button
@@ -60,6 +63,11 @@
         type="primary"
         :disabled="loading || busy"
         @click="confirmDecision(selected, 'approved')">{{ t('strategyApprove') }}</a-button>
+      <a-button
+        v-if="canWrite && selected.status === 'approved' && !selected.execution_allowed"
+        type="primary"
+        :disabled="loading || busy"
+        @click="confirmDecision(selected, 'activated')">{{ t('strategyActivate') }}</a-button>
       <a-button
         v-if="canWrite && selected.status === 'approved'"
         type="danger"
@@ -109,6 +117,9 @@ export default {
   },
   methods: {
     t (key) { return this.$t('ashare.' + key) },
+    versionStatus (version) {
+      return this.t(version.execution_allowed ? 'strategyStatus.activated' : 'strategyStatus.' + version.status)
+    },
     formatTime (value) {
       return new Date(value).toLocaleString(this.$i18n.locale, { timeZone: 'Asia/Shanghai', hour12: false })
     },
@@ -170,9 +181,12 @@ export default {
     },
     confirmDecision (version, decision) {
       if (!this.canWrite || this.loading || this.busy) return
+      const titles = { approved: 'strategyApprove', activated: 'strategyActivate', revoked: 'strategyRevoke' }
+      const notices = { activated: 'strategyActivateConfirm', revoked: 'strategyRevokeConfirm' }
+      const notice = notices[decision] ? this.t(notices[decision]) : ''
       this.$confirm({
-        title: this.t(decision === 'approved' ? 'strategyApprove' : 'strategyRevoke'),
-        content: `${version.id} · ${version.config_sha256}`,
+        title: this.t(titles[decision]),
+        content: [notice, version.id, version.config_sha256].filter(Boolean).join(' · '),
         onOk: () => this.decide(version, decision)
       })
     },

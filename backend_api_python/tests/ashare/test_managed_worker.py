@@ -7,6 +7,7 @@ import uuid
 import pytest
 
 from app.ashare.managed_worker import ManagedWorker
+from app.ashare.strategy_versions import StrategyVersions
 from app.ashare.web_store import WebStore
 
 
@@ -35,7 +36,8 @@ def account(tmp_path):
     with connection, connection.cursor() as cursor:
         cursor.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
         cursor.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
-        for name in ("20261117_ashare_paper.sql", "20261117_ashare_web.sql", "20261117_ashare_operations.sql"):
+        for name in ("20261117_ashare_paper.sql", "20261117_ashare_web.sql", "20261117_ashare_operations.sql",
+                     "20261118_ashare_strategy_versions.sql", "20261118_ashare_strategy_activation.sql"):
             cursor.execute((Path(__file__).parents[2] / "migrations" / name).read_text())
     store = WebStore(connection, "managed_" + uuid.uuid4().hex)
     store.initialize("10000")
@@ -227,3 +229,121 @@ def test_loop_recovers_database_connection_then_completes_bounded_cycle(account,
     output = capsys.readouterr().out
     assert "database_reconnect" in output and '"accounts": 0' in output
     assert "hidden credential" not in output and "not-a-real-dsn" not in output
+
+
+def strategy_fixture(account, *, quantity=100, cap='1100'):
+    conn, _, path = account
+    actor = 42
+    store = WebStore(conn, f'user_{actor}')
+    store.initialize('10000')
+    versions = StrategyVersions(conn, store.tenant_id, store.account_id, clock=lambda: instant(second=7))
+    config = {'mode': 'paper', 'kind': 'buy_once_below', 'symbol': 'sz.000001',
+              'quantity': quantity, 'threshold': '10.10', 'limit_price': '10', 'max_cash': cap}
+    draft = versions.create(config, 'test-managed-strategy', actor)
+
+    def decide(action):
+        return versions.decide(draft['id'], draft['config_sha256'], action, True, actor)
+
+    def rules(**changes):
+        store.review({'symbol': 'sz.000001', 'reviewed': True, 'evidence': 'controlled fixture',
+                      'trading_day': '2026-11-17', 'is_trading_day': True,
+                      'suspended': False, 'st': False, 'limit_up': '11', 'limit_down': '9',
+                      'approval_method': 'explicit_human_review', 'reviewed_at': instant().isoformat(),
+                      'reviewed_by': actor, **changes})
+
+    def worker(feed):
+        return ManagedWorker(conn, path, fetcher=feed, notifications_enabled=False)
+
+    return store, draft, decide, rules, worker
+
+
+def test_managed_execution_one_order_across_restart_and_revocation_releases_unfilled_remainder(account):
+    import psycopg2
+    from contextlib import closing
+    from psycopg2 import sql
+
+    conn, _, path = account
+    store, draft, decide, rules, worker_factory = strategy_fixture(account, quantity=200, cap='2100')
+    current = instant()
+    tick = current
+    worker = worker_factory(lambda *_, **__: [{**quote(tick), 'ask_size': 100}])
+    rules()
+    with pytest.raises(ValueError, match='invalid_strategy_state_transition'):
+        decide('activated')
+    assert worker.process_account(store.tenant_id, now=current)['strategy_submitted'] == []
+    assert decide('approved')['execution_allowed'] is False
+    current = tick = instant(second=6)
+    assert worker.process_account(store.tenant_id, now=current)['strategy_submitted'] == []
+
+    activated = decide('activated')
+    assert activated['execution_allowed'] is True and activated['activated_at'] == instant(second=7)
+    assert decide('activated') == activated
+    current = instant(second=12)
+    # The latest source tick predates activation and must not trigger a new order.
+    assert worker.process_account(store.tenant_id, now=current)['strategy_submitted'] == []
+    current = tick = instant(second=18)
+    fired = worker.process_account(store.tenant_id, now=current)
+    assert len(fired['strategy_submitted']) == 1
+    order_id = fired['strategy_submitted'][0]
+    assert fired['fills'] == []
+    state = store.state()
+    assert float(state['account']['reserved_cash']) == 2005.02
+    audit = next(row['details'] for row in state['audit'] if row['event'] == 'approved_strategy_order_placed')
+    assert audit['version_id'] == draft['id'] and audit['evidence_sha256'] == 'a' * 64
+
+    with conn, conn.cursor() as cur:
+        cur.execute('SELECT current_schema()')
+        schema = cur.fetchone()[0]
+        cur.execute('SELECT pg_advisory_unlock_all()')
+    with closing(psycopg2.connect(os.environ['TEST_ASHARE_DATABASE_URL'])) as replacement:
+        with replacement, replacement.cursor() as cur:
+            cur.execute(sql.SQL('SET search_path TO {}').format(sql.Identifier(schema)))
+        current = tick = instant(second=24)
+        restarted = ManagedWorker(replacement, path, fetcher=worker.fetcher, notifications_enabled=False)
+        fills = restarted.process_account(store.tenant_id, now=current)
+        assert fills['strategy_submitted'] == [] and fills['fills'][0]['quantity'] == 100
+    assert decide('revoked')['execution_allowed'] is False
+    state = store.state()
+    assert state['orders'][0]['id'] == order_id and state['orders'][0]['status'] == 'cancelled'
+    assert state['orders'][0]['filled'] == 100 and state['account']['reserved_cash'] == 0
+    current = tick = instant(second=30)
+    later = worker.process_account(store.tenant_id, now=current)
+    assert later['strategy_submitted'] == later['fills'] == []
+    assert len(store.state()['orders']) == len(store.state()['fills']) == 1
+
+
+def test_automatic_order_waits_if_human_review_changes_before_matching(account):
+    store, _, decide, rules, worker_factory = strategy_fixture(account)
+    rules()
+    decide('approved')
+    decide('activated')
+    worker = worker_factory(lambda *_, **__: [quote(instant(second=10))])
+    worker.process_account(store.tenant_id, now=instant(second=10))
+    previous_rules = store.state()['rules']['sz.000001']
+    rules(evidence='renewed human review')
+    received = instant(second=16)
+    assert store.broker.on_quote(quote(received), previous_rules, received) == []
+    assert store.state()['orders'][0]['status'] == 'open'
+    current_rules = store.state()['rules']['sz.000001']
+    received = instant(second=22)
+    assert len(store.broker.on_quote(quote(received), current_rules, received)) == 1
+
+
+@pytest.mark.parametrize('reason', ['unreviewed', 'previous_day', 'untrusted_reviewer', 'unknown_status', 'stale', 'fees_exceed_cap'])
+def test_managed_strategy_does_not_bypass_rule_quote_or_cash_gates(account, reason):
+    store, _, decide, rules, worker_factory = strategy_fixture(
+        account, cap='1001' if reason == 'fees_exceed_cap' else '1100')
+    decide('approved')
+    decide('activated')
+    if reason != 'unreviewed':
+        adjustments = {'previous_day': {'trading_day': '2026-11-16'},
+                       'untrusted_reviewer': {'reviewed_by': 999}, 'unknown_status': {'suspended': None}}
+        rules(**adjustments.get(reason, {}))
+    now = instant(second=30)
+    worker = worker_factory(lambda *_, **__: [quote(instant(second=6) if reason == 'stale' else now)])
+    result = worker.process_account(store.tenant_id, now=now)
+    assert result['strategy_submitted'] == [] and store.state()['orders'] == []
+    assert store.state()['account']['reserved_cash'] == 0
+    if reason == 'fees_exceed_cap':
+        assert result['strategy_rejections'][0]['reason'] == 'strategy_cash_cap_exceeded'
+        assert result['state'] == 'healthy'
