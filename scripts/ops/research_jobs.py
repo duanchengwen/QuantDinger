@@ -8,13 +8,15 @@ from __future__ import annotations
 
 import argparse
 import ast
+import base64
+import hashlib
 import json
 import re
 import signal
 import subprocess
 import sys
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import paper_stack as ops
@@ -23,6 +25,8 @@ from theme_scheduler import atomic_state, cleanup_container
 TIMEOUTS = {'news': 90, 'work': 150, 'request': 30}
 LOCK_WAIT_SECONDS = 15
 MAX_OUTPUT_BYTES = 16384
+MAX_EXCERPT_BYTES = 1024 * 1024
+MAX_EXCERPT_WIRE_BYTES = 4 * ((MAX_EXCERPT_BYTES + 2) // 3)
 CLEANUP_MARKER = '.research-job-cleanup-unknown.json'
 STATUS_NAME = 'research-job-status.json'
 SAFE_RESEARCH_ERRORS = frozenset({
@@ -33,13 +37,18 @@ SAFE_RESEARCH_ERRORS = frozenset({
     'model_request_failed', 'model_timeout', 'model_response_too_large', 'model_response_invalid',
     'research_input_too_large', 'research_lease_lost', 'evidence_unavailable', 'invalid_evidence_time',
     'research_failed', 'outcome_unknown', 'database_not_configured',
+    'invalid_news_excerpt_evidence', 'news_excerpt_source_mismatch',
 })
 SAFE_HOST_ERRORS = frozenset({'research_job_failed', 'research_job_unknown', 'research_job_timeout',
                              'research_job_cleanup_unknown', 'prior_container_cleanup_requires_review'})
 STATUSES = {'ingested', 'idle', 'queued', 'started', 'completed', 'failed', 'no_evidence',
             'needs_model_configuration', 'skipped_before_window', 'skipped_active', 'skipped_daily_limit'}
 
-CONTAINER_SCRIPT = 'SAFE_RESEARCH_ERRORS = frozenset(' + repr(sorted(SAFE_RESEARCH_ERRORS)) + ')\n' + r'''
+CONTAINER_SCRIPT = (
+    'SAFE_RESEARCH_ERRORS = frozenset(' + repr(sorted(SAFE_RESEARCH_ERRORS)) + ')\n'
+    f'MAX_EXCERPT_WIRE_BYTES = {MAX_EXCERPT_WIRE_BYTES}\n'
+) + r'''
+import base64
 import json
 import re
 import sys
@@ -49,7 +58,7 @@ from zoneinfo import ZoneInfo
 import psycopg2
 from app.ashare.schema import get_database_url
 
-payload = json.loads(sys.stdin.read(4096))
+payload = json.loads(sys.stdin.read(MAX_EXCERPT_WIRE_BYTES + 4096))
 job = payload.get('job')
 result = {'job': job, 'status': 'failed', 'error': 'research_job_failed', 'execution_allowed': False}
 safe_exception = lambda error: 'research_job_failed'
@@ -60,7 +69,10 @@ def attach_run_error(result, run):
 try:
     if job not in ('news', 'work', 'request'):
         raise ValueError()
-    if set(payload) != ({'job', 'tenant_id', 'account_id', 'idempotency_key', 'daily'} if job == 'request' else {'job'}):
+    fields = {'job', 'tenant_id', 'account_id', 'idempotency_key', 'daily'} if job == 'request' else {'job'}
+    if job == 'work' and 'excerpt' in payload:
+        fields |= {'excerpt', 'excerpt_sha256'}
+    if set(payload) != fields:
         raise ValueError()
     if job == 'request':
         if (any(not isinstance(payload[key], str) or not re.fullmatch(r'[A-Za-z0-9_:-]{1,200}', payload[key]) for key in ('tenant_id', 'account_id'))
@@ -84,7 +96,18 @@ try:
         elif job == 'work':
             from app.ashare.research import run_once, ResearchError
             safe_exception = lambda error: str(error) if isinstance(error, ResearchError) and str(error) in SAFE_RESEARCH_ERRORS else 'research_job_failed'
-            run = run_once(connection)
+            if 'excerpt' in payload:
+                from app.ashare.research_excerpts import verify_excerpt_artifact
+                try:
+                    encoded = payload['excerpt']
+                    if not isinstance(encoded, str) or len(encoded) > MAX_EXCERPT_WIRE_BYTES:
+                        raise ValueError()
+                    receipt = verify_excerpt_artifact(base64.b64decode(encoded, validate=True), payload['excerpt_sha256'])
+                except (ValueError, TypeError):
+                    raise ResearchError('invalid_news_excerpt_evidence') from None
+                run = run_once(connection, excerpt_receipt=receipt)
+            else:
+                run = run_once(connection)
             result = {'job': job, 'status': run['status'] if run else 'idle', 'execution_allowed': False}
             if run:
                 result['id'] = run['id']
@@ -161,7 +184,7 @@ def load_job_status(state):
 
 def _record_job_status(state, outcome, started_at):
     data = load_job_status(state)
-    stamp = datetime.now(timezone.utc).isoformat()
+    stamp = datetime.now(UTC).isoformat()
     data['updated_at'] = stamp
     data['jobs'][outcome['job']] = {**outcome, 'started_at': started_at, 'updated_at': stamp}
     atomic_state(state / STATUS_NAME, data)
@@ -201,12 +224,73 @@ def _safe_result(result, job):
     return safe
 
 
-def run_job(state, job, *, tenant_id=None, account_id='paper', idempotency_key=None, daily=False):
+def _work_excerpt_payload(path, digest):
+    """Pass verified-size binary evidence through stdin without logs or mounts."""
+    if not isinstance(digest, str) or not re.fullmatch('[a-f0-9]{64}', digest) or not path.is_file():
+        raise ValueError('invalid_news_excerpt_evidence')
+    with path.open('rb') as stream:
+        raw = stream.read(MAX_EXCERPT_BYTES + 1)
+    if not 0 < len(raw) <= MAX_EXCERPT_BYTES or hashlib.sha256(raw).hexdigest() != digest:
+        raise ValueError('invalid_news_excerpt_evidence')
+    return {'excerpt': base64.b64encode(raw).decode('ascii'), 'excerpt_sha256': digest}
+
+
+def _latest_excerpt_payload(state, directory):
+    job = load_job_status(state)['jobs'].get('news', {})
+    if job.get('status') != 'ingested':
+        return {}
+    receipt_id = job['receipt_id']
+    path = directory / (receipt_id + '.json')
+    if not path.exists():
+        return {}
+    metadata = json.loads((state / 'deployment.json').read_bytes())
+    project = metadata['project']
+    ops.check_project(project)
+    unit = f'quantdinger-research-news-pdf-{project}.service'
+    try:
+        journal = subprocess.run(['journalctl', '--user', '-u', unit, '-n', '40', '--no-pager', '-o', 'cat'],
+                                 capture_output=True, text=True, timeout=8, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return {}
+    if journal.returncode or len(journal.stdout.encode('utf-8')) > MAX_OUTPUT_BYTES:
+        return {}
+    digests = set()
+    for line in journal.stdout.splitlines():
+        if not line.startswith('{'):
+            continue
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if (isinstance(event, dict) and event.get('status') == 'extracted'
+                and event.get('receipt_id') == receipt_id
+                and event.get('pdfs') == job['item_count'] and event.get('execution_allowed') is False):
+            digest = event.get('artifact_sha256')
+            if not isinstance(digest, str) or not re.fullmatch('[a-f0-9]{64}', digest):
+                raise ValueError('invalid_news_excerpt_evidence')
+            digests.add(digest)
+    if not digests:
+        return {}
+    if len(digests) != 1 or path.is_symlink():
+        raise ValueError('invalid_news_excerpt_evidence')
+    return _work_excerpt_payload(path, digests.pop())
+
+
+def run_job(state, job, *, tenant_id=None, account_id='paper', idempotency_key=None, daily=False,
+            excerpt=None, excerpt_sha256=None, excerpt_dir=None):
     if job not in TIMEOUTS:
         raise ValueError('invalid_job')
     payload = _request(tenant_id, account_id, idempotency_key, daily) if job == 'request' else {'job': job}
+    if excerpt_dir is not None:
+        if job != 'work' or excerpt is not None or excerpt_sha256 is not None:
+            raise ValueError('invalid_news_excerpt_evidence')
+        payload.update(_latest_excerpt_payload(state, excerpt_dir))
+    elif excerpt is not None or excerpt_sha256 is not None:
+        if job != 'work' or excerpt is None:
+            raise ValueError('invalid_news_excerpt_evidence')
+        payload.update(_work_excerpt_payload(excerpt, excerpt_sha256))
     with ops.operation_lock(state, wait_seconds=LOCK_WAIT_SECONDS):
-        started_at = datetime.now(timezone.utc).isoformat()
+        started_at = datetime.now(UTC).isoformat()
         marker = state / CLEANUP_MARKER
         if marker.exists() or marker.is_symlink():
             _record_job_status(state, {'job':job, 'status':'failed', 'error':'prior_container_cleanup_requires_review', 'execution_allowed':False}, started_at)
@@ -235,7 +319,7 @@ def run_job(state, job, *, tenant_id=None, account_id='paper', idempotency_key=N
     return 1 if outcome['status'] in ('failed', 'unknown') else 0
 
 
-def templates(state, output_dir, tenant_id, account_id):
+def templates(state, output_dir, tenant_id, account_id, *, excerpt_dir=None):
     """Write inert unit files only; explicit account authorization is supplied by caller."""
     _request(tenant_id, account_id, None, True)
     project = json.loads((state / 'deployment.json').read_text())['project']
@@ -246,12 +330,16 @@ def templates(state, output_dir, tenant_id, account_id):
                  'work': 'OnBootSec=2min\nOnUnitActiveSec=2min',
                  'request': 'OnCalendar=*-*-* 08:30:00 Asia/Shanghai\nPersistent=true'}
     start_after = {'news': (), 'request': ('news',), 'work': ('news', 'request')}
-    for job in TIMEOUTS:
+    for job, timeout in TIMEOUTS.items():
         unit = 'quantdinger-research-' + job + '-' + project
         args = [sys.executable, Path(__file__).resolve(), '--state-dir', state, job]
         if job == 'request': args += ['--tenant-id', tenant_id, '--account-id', account_id, '--daily']
+        if job == 'work' and excerpt_dir is not None:
+            args += ['--excerpt-dir', excerpt_dir]
         command = ' '.join(ops.systemd_argument(value) for value in args)
         dependencies = ' '.join(f'quantdinger-research-{name}-{project}.service' for name in start_after[job])
+        if job == 'work' and excerpt_dir is not None:
+            dependencies += f' quantdinger-research-news-pdf-{project}.service'
         order = f'\nAfter={dependencies}' if dependencies else ''
         units[unit + '.service'] = f'''[Unit]
 Description=Bounded paper research {job} ({project}){order}
@@ -259,7 +347,7 @@ Description=Bounded paper research {job} ({project}){order}
 [Service]
 Type=oneshot
 UMask=0077
-TimeoutStartSec={TIMEOUTS[job] + LOCK_WAIT_SECONDS + 25}s
+TimeoutStartSec={timeout + LOCK_WAIT_SECONDS + 25}s
 TimeoutStopSec=20s
 Restart=no
 ExecStart={command}
@@ -290,18 +378,29 @@ def main(argv=None):
     parser.add_argument('--idempotency-key')
     parser.add_argument('--daily', action='store_true')
     parser.add_argument('--output-dir', type=Path)
+    parser.add_argument('--excerpt', type=Path)
+    parser.add_argument('--excerpt-sha256')
+    parser.add_argument('--excerpt-dir', type=Path)
     args = parser.parse_args(argv)
     state = args.state_dir.expanduser().resolve()
     if state == ops.ROOT or ops.ROOT in state.parents:
         parser.error('Keep deployment state outside the checkout')
+    if bool(args.excerpt) != bool(args.excerpt_sha256) or (args.excerpt and args.command != 'work'):
+        parser.error('--excerpt and --excerpt-sha256 require work')
+    if args.excerpt_dir and (args.excerpt or args.command not in ('work', 'templates')):
+        parser.error('--excerpt-dir requires work or templates without an explicit excerpt')
+    excerpt_dir = args.excerpt_dir.expanduser().resolve() if args.excerpt_dir else None
     if args.command == 'templates':
         if not args.output_dir or not args.tenant_id:
             parser.error('templates requires --output-dir and --tenant-id')
-        return templates(state, args.output_dir.expanduser().resolve(), args.tenant_id, args.account_id)
+        return templates(state, args.output_dir.expanduser().resolve(), args.tenant_id, args.account_id,
+                         excerpt_dir=excerpt_dir)
     if args.output_dir or (args.command != 'request' and (args.tenant_id or args.idempotency_key or args.daily)):
         parser.error('Unexpected job options')
     return run_job(state, args.command, tenant_id=args.tenant_id, account_id=args.account_id,
-                   idempotency_key=args.idempotency_key, daily=args.daily)
+                   idempotency_key=args.idempotency_key, daily=args.daily,
+                   excerpt=args.excerpt.expanduser() if args.excerpt else None, excerpt_sha256=args.excerpt_sha256,
+                   excerpt_dir=excerpt_dir)
 
 
 if __name__ == '__main__':

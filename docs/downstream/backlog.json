@@ -51,7 +51,7 @@
     {
       "id": "scheduled_news_ingestion",
       "status": "accepted_limited_scope",
-      "acceptance": "CNinfo retains original JSON/PDF records. A local extraction hook reads each successful receipt without provider refetch or backup pause. The Nov18 13:00 natural schedule produced 8 excerpts with verified receipt and artifact hashes. The read-only preview has also passed actual point-in-time checks. Scheduled research using excerpts and broad industry news remain open."
+      "acceptance": "CNinfo retains original JSON/PDF records. The Nov18 13:00 natural schedule produced 8 verified excerpts. Optional worker and UI support for those excerpts passed a real-evidence replay with an intercepted model request and is staged for deployment. Actual scheduled excerpt research and broad industry news remain open."
     },
     {
       "id": "deepseek_research_agent",

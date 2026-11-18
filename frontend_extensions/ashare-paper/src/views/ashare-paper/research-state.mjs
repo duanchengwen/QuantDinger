@@ -3,11 +3,11 @@ const isPending = run => !!run && ['queued', 'started'].includes(run.status)
 const validRun = run => !!run && typeof run.id === 'string' && RUN_STATES.includes(run.status)
 
 export function researchEvidenceKey (scope) {
-  return ({ issuer_announcement_title: 'researchIssuerTitle', direct_mention: 'researchDirectMention', theme_context: 'researchThemeContext' })[scope] || 'researchEvidenceUnknown'
+  return ({ issuer_announcement_title: 'researchIssuerTitle', issuer_announcement_excerpt: 'researchIssuerExcerpt', direct_mention: 'researchDirectMention', theme_context: 'researchThemeContext' })[scope] || 'researchEvidenceUnknown'
 }
 
 export function researchReasonKey (code) {
-  return ({ no_supported_topics: 'researchNoSupportedTopics', no_verified_theme_members: 'researchNoThemeEvidence', no_news_evidence: 'researchNoFreshIssuerEvidence', model_not_supported: 'researchModelUnsupported', model_not_configured: 'researchState.needs_model_configuration', model_endpoint_not_allowed: 'researchEndpointUnsupported', model_timeout: 'researchModelTimeout', outcome_unknown: 'researchOutcomeUnknown', evidence_unavailable: 'researchEvidenceUnavailable' })[code] || 'researchReasonUnavailable'
+  return ({ no_supported_topics: 'researchNoSupportedTopics', no_verified_theme_members: 'researchNoThemeEvidence', no_news_evidence: 'researchNoFreshIssuerEvidence', model_not_supported: 'researchModelUnsupported', model_not_configured: 'researchState.needs_model_configuration', model_endpoint_not_allowed: 'researchEndpointUnsupported', model_timeout: 'researchModelTimeout', outcome_unknown: 'researchOutcomeUnknown', evidence_unavailable: 'researchEvidenceUnavailable', news_excerpt_source_mismatch: 'researchEvidenceUnavailable' })[code] || 'researchReasonUnavailable'
 }
 
 export function createResearchState () {

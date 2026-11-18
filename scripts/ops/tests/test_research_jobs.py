@@ -1,4 +1,6 @@
 """Finite scheduler tests use fake process boundaries only."""
+import base64
+import hashlib
 import importlib.util
 import io
 import json
@@ -121,10 +123,83 @@ def test_templates_are_inert_explicit_account_and_bounded(state, tmp_path):
     with pytest.raises(ValueError): jobs.templates(state, folder, 'user:7', 'paper')
 
 
+def test_excerpt_template_changes_only_the_research_worker(state):
+    plain = state / 'plain-units'
+    enabled = state / 'excerpt-units'
+    directory = state / 'compiled-excerpts'
+    jobs.templates(state, plain, 'user:7', 'paper')
+    jobs.templates(state, enabled, 'user:7', 'paper', excerpt_dir=directory)
+    worker_name = 'quantdinger-research-work-paper-test.service'
+    for expected in plain.iterdir():
+        actual = (enabled / expected.name).read_text()
+        if expected.name == worker_name:
+            assert '"--excerpt-dir"' in actual and str(directory) in actual
+            assert 'quantdinger-research-news-pdf-paper-test.service' in actual
+        else:
+            assert actual == expected.read_text()
+
+
+def test_explicit_excerpt_is_given_to_worker_only_via_stdin(state):
+    raw = '待核验的正文节选'.encode()
+    artifact = state / 'excerpt.json'
+    artifact.write_bytes(raw)
+    digest = hashlib.sha256(raw).hexdigest()
+    response = SimpleNamespace(stdout='{"job":"work","status":"idle","execution_allowed":false}', returncode=0)
+    with (
+        patch.object(jobs.ops, 'compose', return_value=['fixture']),
+        patch.object(jobs, 'cleanup_container', return_value=True),
+        patch.object(jobs.subprocess, 'run', return_value=response) as run,
+    ):
+        assert jobs.run_job(state, 'work', excerpt=artifact, excerpt_sha256=digest) == 0
+        with pytest.raises(ValueError, match='invalid_news_excerpt_evidence'):
+            jobs.run_job(state, 'work', excerpt=artifact, excerpt_sha256='0' * 64)
+    run.assert_called_once()
+    payload = json.loads(run.call_args.kwargs['input'])
+    assert payload == {'job': 'work', 'excerpt': base64.b64encode(raw).decode(), 'excerpt_sha256': digest}
+    assert run.call_args.args[0] == ['fixture']
+    assert 'excerpt' not in jobs.load_job_status(state)['jobs']['work']
+
+
+@pytest.mark.parametrize('mode', ['valid', 'wrong_receipt', 'tampered', 'not_ingested', 'no_file'])
+def test_latest_excerpt_requires_exact_successful_journal_proof(state, mode):
+    receipt = 'a' * 32
+    raw = b'local evidence sample'
+    path = state / (receipt + '.json')
+    if mode != 'no_file':
+        path.write_bytes(raw if mode != 'tampered' else raw + b' tampered')
+    result = {'job': 'news', 'status': 'ingested', 'receipt_id': receipt,
+              'item_count': 1, 'source_hash': 'b' * 64, 'execution_allowed': False}
+    if mode == 'not_ingested':
+        result = {'job': 'news', 'status': 'started', 'execution_allowed': False}
+    jobs._record_job_status(state, result, datetime.now(ZoneInfo('UTC')).isoformat())
+    digest = hashlib.sha256(raw).hexdigest()
+    journal_event = {'status': 'extracted', 'receipt_id': 'c' * 32 if mode == 'wrong_receipt' else receipt,
+                     'artifact_sha256': digest, 'pdfs': 1, 'execution_allowed': False}
+    with patch.object(jobs.subprocess, 'run', return_value=SimpleNamespace(
+            returncode=0, stdout='Started\n' + json.dumps(journal_event) + '\n')) as journal:
+        if mode == 'tampered':
+            with pytest.raises(ValueError, match='invalid_news_excerpt_evidence'):
+                jobs._latest_excerpt_payload(state, state)
+        else:
+            actual = jobs._latest_excerpt_payload(state, state)
+            assert actual == (jobs._work_excerpt_payload(path, digest) if mode == 'valid' else {})
+    if mode in ('no_file', 'not_ingested'):
+        journal.assert_not_called()
+    else:
+        assert 'quantdinger-research-news-pdf-paper-test.service' in journal.call_args.args[0]
+        assert journal.call_args.kwargs['timeout'] == 8
+
+
 def child(payload, hour=9, run_result=None, request_error=None, news_error=None, arbitrary_error=None):
     database = ModuleType('psycopg2'); database.connect = Mock(return_value=Mock())
     schema = ModuleType('app.ashare.schema'); schema.get_database_url = lambda:'private-test-dsn'
     research = ModuleType('app.ashare.research'); research.run_once = Mock(return_value=run_result)
+    excerpts = ModuleType('app.ashare.research_excerpts')
+    def verify(raw, expected):
+        if hashlib.sha256(raw).hexdigest() != expected:
+            raise ValueError('unverified')
+        return {'verified': True}
+    excerpts.verify_excerpt_artifact = verify
     class Error(ValueError): pass
     research.ResearchError = Error
     store = Mock(); store.request_run.return_value = {'status':'queued','id':'a'*32}
@@ -141,7 +216,8 @@ def child(payload, hour=9, run_result=None, request_error=None, news_error=None,
         def now(cls, tz=None): return datetime(2026,11,18,hour,0,tzinfo=ZoneInfo('Asia/Shanghai'))
     dt = ModuleType('datetime');dt.datetime = Clock
     stdout=io.StringIO()
-    with patch.dict(sys.modules, {'psycopg2':database,'app.ashare.schema':schema,'app.ashare.research':research,'app.ashare.news':news,'datetime':dt}), \
+    with patch.dict(sys.modules, {'psycopg2':database,'app.ashare.schema':schema,'app.ashare.research':research,
+                                  'app.ashare.research_excerpts':excerpts,'app.ashare.news':news,'datetime':dt}), \
          patch.object(sys,'stdin',io.StringIO(json.dumps(payload))),redirect_stdout(stdout),pytest.raises(SystemExit) as exited:
         exec(compile(jobs.CONTAINER_SCRIPT,'<research-job>','exec'),{})
     assert 'private-test-dsn' not in stdout.getvalue()
@@ -159,6 +235,24 @@ def test_child_work_calls_one_finite_worker_without_enqueue():
     code,result,research,news,_=child({'job':'work'},run_result={'status':'completed','id':'a'*32})
     assert code == 0 and result['status'] == 'completed'
     research.run_once.assert_called_once();research.ResearchStore.assert_not_called();news.ingest_news.assert_not_called()
+
+
+@pytest.mark.parametrize('valid', [True, False])
+def test_child_verifies_excerpt_before_running_one_claim(valid):
+    raw = b'fixture reference'
+    payload = {'job': 'work', 'excerpt': base64.b64encode(raw).decode(),
+               'excerpt_sha256': hashlib.sha256(raw).hexdigest() if valid else '0' * 64}
+    code, result, research, news, _ = child(payload, run_result={'status': 'completed', 'id': 'a' * 32})
+    assert result['execution_allowed'] is False
+    if valid:
+        assert code == 0 and result['status'] == 'completed'
+        research.run_once.assert_called_once()
+        assert research.run_once.call_args.kwargs == {'excerpt_receipt': {'verified': True}}
+    else:
+        assert code == 1 and result['error'] == 'invalid_news_excerpt_evidence'
+        research.run_once.assert_not_called()
+    research.ResearchStore.assert_not_called()
+    news.ingest_news.assert_not_called()
 
 
 def test_daily_request_explicit_scope_same_day_key():

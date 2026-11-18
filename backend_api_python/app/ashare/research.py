@@ -50,7 +50,7 @@ An announcement issuer is not proof of benefit. Titles are not article/PDF conte
 Do not claim to have read PDF bodies. State uncertainty and title-only limitations, with at least one risk per candidate and overall.
 Include no URLs, code, strategy definitions, tool requests, buy/sell instructions, or new ticker symbols. An empty candidates list is valid.
 Use the provided evidence to suggest questions requiring further human research only.'''
-EXCERPT_PROMPT_VERSION = 'issuer-bounded-excerpt-preview-v1'
+EXCERPT_PROMPT_VERSION = 'issuer-bounded-excerpt-v1'
 EXCERPT_SYSTEM_PROMPT = SYSTEM_PROMPT.replace(
     'Titles are not article/PDF contents.', 'A supplied excerpt covers only the requested pages and may be truncated.',
 ).replace(
@@ -162,7 +162,8 @@ class DeepSeekAdapter:
         return _configuration()
 
     def complete(self, snapshot, model):
-        payload = {'model': model, 'messages': [{'role': 'system', 'content': SYSTEM_PROMPT},
+        prompt = EXCERPT_SYSTEM_PROMPT if snapshot.get('prompt_version') == EXCERPT_PROMPT_VERSION else SYSTEM_PROMPT
+        payload = {'model': model, 'messages': [{'role': 'system', 'content': prompt},
                    {'role': 'user', 'content': _json(snapshot)}], 'response_format': {'type': 'json_object'},
                    'max_tokens': 4096, 'stream': False, 'thinking': {'type': 'disabled'}, 'tool_choice': 'none'}
         try:
@@ -290,6 +291,7 @@ def validate_output(content, snapshot):
     if not isinstance(rows, list) or len(rows) > MAX_CANDIDATES:
         raise ResearchError('model_output_invalid')
     allowed = {item['symbol']: item for item in snapshot['allowed_candidates']}
+    excerpt_ids = {item['id'] for item in snapshot['news'] if 'excerpt' in item}
     candidates, seen = [], set()
     for row in rows:
         if not isinstance(row, dict) or set(row) != {'symbol', 'rationale', 'evidence_news_ids', 'risks'}:
@@ -303,9 +305,10 @@ def validate_output(content, snapshot):
                 or any(not isinstance(ref, str) or ref not in allowed[symbol]['evidence_news_ids'] for ref in refs)
                 or len(set(refs)) != len(refs)):
             raise ResearchError('model_output_invalid')
+        scope = 'issuer_announcement_excerpt' if excerpt_ids.intersection(refs) else 'issuer_announcement_title'
         candidates.append({'symbol': symbol, 'name': allowed[symbol]['name'],
                            'rationale': _text(row['rationale'], 1500), 'evidence_news_ids': refs,
-                           'risks': _risks(row['risks']), 'evidence_scope': 'issuer_announcement_title',
+                           'risks': _risks(row['risks']), 'evidence_scope': scope,
                            'execution_allowed': False, 'approval_status': 'not_submitted'})
     # Reference identifiers are validated separately; digits in hashes are not tickers.
     narrative = '\n'.join([summary, *risks,
@@ -446,7 +449,7 @@ class ResearchStore:
             if cursor.rowcount != 1:
                 raise ResearchError('research_lease_lost')
 
-    def run_once(self, adapter=None, theme_store=None, news_store=None):
+    def run_once(self, adapter=None, theme_store=None, news_store=None, *, excerpt_receipt=None):
         row = self._claim()
         if row is None:
             return None
@@ -465,7 +468,10 @@ class ResearchStore:
             if news_store is None:
                 from app.ashare.news import NewsStore
                 news_store = NewsStore(self.connection)
-            snapshot, missing = build_input(row['preferences'], row['started_at'], theme_store or ThemeStore(self.connection), news_store)
+            snapshot, missing = build_input(
+                row['preferences'], row['started_at'], theme_store or ThemeStore(self.connection),
+                news_store, excerpt_receipt=excerpt_receipt,
+            )
             self._write(row, {'input_snapshot': snapshot, 'input_hash': _hash(_json(snapshot))})
             if missing:
                 self._write(row, {'status': 'no_evidence', 'error_code': missing}, terminal=True)
@@ -493,24 +499,27 @@ class ResearchStore:
             output = validate_output(content, snapshot)
             self._write(row, {**output, 'status': 'completed'}, terminal=True)
         except Exception as exc:
-            code = str(exc) if isinstance(exc, ResearchError) else 'evidence_unavailable'
+            code = str(exc) if isinstance(exc, (ResearchError, ExcerptEvidenceError)) else 'evidence_unavailable'
             safe_codes = {'model_output_invalid', 'model_request_failed', 'model_timeout', 'model_response_too_large',
                           'model_response_invalid', 'research_input_too_large', 'research_lease_lost', 'evidence_unavailable',
-                          'invalid_evidence_time', 'model_not_configured', 'model_configuration_changed'}
+                          'invalid_evidence_time', 'model_not_configured', 'model_configuration_changed',
+                          'news_excerpt_source_mismatch'}
             code = code if code in safe_codes else 'research_failed'
             if code != 'research_lease_lost':
                 self._write(row, {'status': 'failed', 'error_code': code}, terminal=True)
         return self.get_run(row['id'])
 
 
-def run_once(connection):
+def run_once(connection, *, excerpt_receipt=None):
     """Global finite queue worker; claim and every write remain account-scoped."""
     with connection, connection.cursor(cursor_factory=RealDictCursor) as cursor:
         cursor.execute("""UPDATE qd_ashare_research_runs SET status='failed',error_code='outcome_unknown',completed_at=clock_timestamp()
             WHERE status='started' AND lease_until<clock_timestamp()""")
         cursor.execute("SELECT tenant_id,account_id FROM qd_ashare_research_runs WHERE status='queued' ORDER BY created_at,id LIMIT 1")
         row = cursor.fetchone()
-    return ResearchStore(connection, row['tenant_id'], row['account_id']).run_once() if row else None
+    return ResearchStore(connection, row['tenant_id'], row['account_id']).run_once(
+        excerpt_receipt=excerpt_receipt,
+    ) if row else None
 
 
 def main(argv=None):
@@ -526,6 +535,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.command == 'preview-excerpts' and not (args.topics and args.excerpt and args.excerpt_sha256):
         parser.error('preview-excerpts requires --topics, --excerpt and --excerpt-sha256')
+    if bool(args.excerpt) != bool(args.excerpt_sha256) or (args.excerpt and args.command not in ('run-once', 'preview-excerpts')):
+        parser.error('--excerpt and --excerpt-sha256 require run-once or preview-excerpts')
     if args.command == '_call':
         try:
             payload = json.loads(sys.stdin.read(MAX_INPUT_BYTES * 2))
@@ -536,6 +547,11 @@ def main(argv=None):
     else:
         import psycopg2
         from app.ashare.schema import get_database_url
+        try:
+            receipt = load_excerpt_receipt(args.excerpt, args.excerpt_sha256) if args.excerpt else None
+        except ExcerptEvidenceError as error:
+            print(_json({'error': str(error)}))
+            return 1
         dsn = get_database_url()
         if not dsn:
             raise ResearchError('database_not_configured')
@@ -544,7 +560,6 @@ def main(argv=None):
                 from app.ashare.news import NewsStore
                 connection.set_session(readonly=True, isolation_level='REPEATABLE READ')
                 try:
-                    receipt = load_excerpt_receipt(args.excerpt, args.excerpt_sha256)
                     preview, missing = build_input(
                         {'topics': args.topics}, args.known_at or datetime.now(timezone.utc),
                         ThemeStore(connection), NewsStore(connection), excerpt_receipt=receipt,
@@ -564,7 +579,7 @@ def main(argv=None):
                     parser.error('request requires --tenant-id and --idempotency-key')
                 result = ResearchStore(connection, args.tenant_id, args.account_id).request_run(args.idempotency_key)
             else:
-                result = run_once(connection)
+                result = run_once(connection, excerpt_receipt=receipt)
         print(_json({'status': result['status'], 'id': result['id']} if result else {'status': 'idle'}))
     return 0
 

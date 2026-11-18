@@ -225,11 +225,13 @@ test('new research copy is localized in all official languages', async () => {
 test('issuer announcement titles and no-evidence reasons keep their precise meaning', async () => {
   const { researchEvidenceKey, researchReasonKey } = await import('../src/views/ashare-paper/research-state.mjs')
   assert.equal(researchEvidenceKey('issuer_announcement_title'), 'researchIssuerTitle')
+  assert.equal(researchEvidenceKey('issuer_announcement_excerpt'), 'researchIssuerExcerpt')
   assert.equal(researchEvidenceKey('theme_context'), 'researchThemeContext')
   assert.equal(researchEvidenceKey('unexpected'), 'researchEvidenceUnknown')
   assert.equal(researchReasonKey('no_supported_topics'), 'researchNoSupportedTopics')
   assert.equal(researchReasonKey('no_verified_theme_members'), 'researchNoThemeEvidence')
   assert.equal(researchReasonKey('no_news_evidence'), 'researchNoFreshIssuerEvidence')
   assert.equal(researchReasonKey('model_not_supported'), 'researchModelUnsupported')
+  assert.equal(researchReasonKey('news_excerpt_source_mismatch'), 'researchEvidenceUnavailable')
   assert.equal(researchReasonKey('server secret must never appear'), 'researchReasonUnavailable')
 })

@@ -32,13 +32,21 @@ def _digest(data):
 
 
 def load_excerpt_receipt(path, expected_sha256):
-    """Require a separate expected hash and verify all supplied text before use."""
+    """Read only a bounded regular evidence file."""
     try:
-        if not SHA256.fullmatch(expected_sha256) or not Path(path).is_file():
+        if not Path(path).is_file():
             raise ValueError()
         with Path(path).open("rb") as stream:
             raw = stream.read(MAX_ARTIFACT_BYTES + 1)
-        if len(raw) > MAX_ARTIFACT_BYTES or _digest(raw) != expected_sha256:
+    except (OSError, TypeError, ValueError):
+        raise ExcerptEvidenceError("invalid_news_excerpt_evidence") from None
+    return verify_excerpt_artifact(raw, expected_sha256)
+
+
+def verify_excerpt_artifact(raw, expected_sha256):
+    """Require a separate expected hash and verify all supplied text before use."""
+    try:
+        if not SHA256.fullmatch(expected_sha256) or len(raw) > MAX_ARTIFACT_BYTES or _digest(raw) != expected_sha256:
             raise ValueError()
         artifact = json.loads(raw)
         received = _time(artifact["archive_received_at"])

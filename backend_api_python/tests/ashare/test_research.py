@@ -210,8 +210,14 @@ def test_valid_output_remains_non_executable():
     assert candidate['evidence_scope'] == 'issuer_announcement_title'
 
 
-def test_adapter_total_timeout_no_retry(monkeypatch):
+@pytest.mark.parametrize('use_excerpts', [False, True])
+def test_adapter_total_timeout_no_retry(monkeypatch, use_excerpts):
     calls = []
+    data = snapshot()
+    if use_excerpts:
+        data['prompt_version'] = r.EXCERPT_PROMPT_VERSION
+        data['news'][0]['excerpt'] = {'content': '示例节选中的文字是输入资料'}
+
     def run(*args, **kwargs):
         calls.append(kwargs)
         assert kwargs['timeout'] == 90
@@ -220,10 +226,12 @@ def test_adapter_total_timeout_no_retry(monkeypatch):
         assert 'tools' not in payload and payload['tool_choice'] == 'none'
         assert payload['max_tokens'] == 4096 and payload['thinking'] == {'type': 'disabled'}
         assert 'untrusted data' in payload['messages'][0]['content']
+        assert payload['messages'][0]['content'] == (r.EXCERPT_SYSTEM_PROMPT if use_excerpts else r.SYSTEM_PROMPT)
+        assert json.loads(payload['messages'][1]['content']) == data
         raise subprocess.TimeoutExpired(args, 90)
     monkeypatch.setattr(subprocess, 'run', run)
     with pytest.raises(r.ResearchError, match='model_timeout'):
-        r.DeepSeekAdapter().complete(snapshot(), 'deepseek-flash')
+        r.DeepSeekAdapter().complete(data, 'deepseek-flash')
     assert len(calls) == 1
 
 
@@ -291,6 +299,41 @@ def test_pg_configuration_and_no_evidence_never_call_model(store):
     adapter = Adapter()
     run = repo.run_once(adapter, Themes(), News([]))
     assert run['status'] == 'no_evidence' and run['error_code'] == 'no_news_evidence' and adapter.calls == 0
+
+
+@pytest.mark.parametrize('mode', ['available', 'future', 'wrong_pdf'])
+def test_pg_excerpt_input_uses_same_claim_and_records_exact_scope(store, excerpt_evidence, mode):
+    repo, _ = store
+    queued = repo.request_run('request-0001')
+    path, artifact, item, observed = excerpt_evidence
+    if mode == 'future':
+        artifact['derived_at'] = (NOW+timedelta(days=1)).isoformat()
+    if mode == 'wrong_pdf':
+        artifact['items'][0]['source_pdf_sha256'] = '9' * 64
+    receipt = _load_excerpt(path, artifact)
+    response = output()
+    response['candidates'][0]['evidence_news_ids'] = [item['id']]
+
+    class VerifyPersistedInput(Adapter):
+        def complete(self, data, model):
+            saved = repo.get_run(queued['id'])
+            assert saved['status'] == 'started'
+            assert saved['input_hash'] == r._hash(r._json(data))
+            assert saved['input_snapshot'] == data
+            return super().complete(data, model)
+
+    adapter = VerifyPersistedInput(response)
+    run = repo.run_once(adapter, Themes(), News([item], [observed]), excerpt_receipt=receipt)
+    assert run['execution_allowed'] is False and run['approval_status'] == 'not_submitted'
+    if mode == 'wrong_pdf':
+        assert run['status'] == 'failed' and run['error_code'] == 'news_excerpt_source_mismatch'
+        assert adapter.calls == 0
+    else:
+        assert run['status'] == 'completed' and adapter.calls == 1
+        assert ('excerpt' in run['input_snapshot']['news'][0]) == (mode == 'available')
+        scope = 'issuer_announcement_excerpt' if mode == 'available' else 'issuer_announcement_title'
+        assert run['candidates'][0]['evidence_scope'] == scope
+    assert repo.run_once(adapter, Themes(), News([item], [observed]), excerpt_receipt=receipt) is None
 
 
 def test_pg_invalid_output_retains_actual_usage_and_raw_hash(store):
