@@ -3,9 +3,13 @@
     <p>{{ t('strategyVersionHelp') }}</p>
     <a-alert v-if="error" type="error" :message="error" />
     <a-button :disabled="busy" :loading="loading" @click="refresh">{{ t('refresh') }}</a-button>
+    <p v-if="canWrite && researchReference">
+      {{ t('strategyResearchReference') }} · <code>{{ researchReference.run_id }}</code>
+      <a-button size="small" :disabled="busy" @click="researchReference = null">{{ t('strategyClearResearchReference') }}</a-button>
+    </p>
     <a-form v-if="canWrite" layout="vertical" class="strategy-form" @submit.prevent="create">
       <a-form-item :label="t('symbol')">
-        <a-select v-model="draft.symbol" :disabled="busy" :placeholder="t('symbol')">
+        <a-select v-model="draft.symbol" :disabled="busy || Boolean(researchReference)" :placeholder="t('symbol')">
           <a-select-option v-for="symbol in symbols" :key="symbol" :value="symbol">{{ symbol }}</a-select-option>
         </a-select>
       </a-form-item>
@@ -47,6 +51,11 @@
         <dt>{{ t('strategyThreshold') }}</dt><dd>{{ selected.config.threshold }}</dd>
         <dt>{{ t('price') }}</dt><dd>{{ selected.config.limit_price }}</dd>
         <dt>{{ t('strategyMaxCash') }}</dt><dd>{{ selected.config.max_cash }}</dd>
+        <template v-if="selected.config.research_reference">
+          <dt>{{ t('strategyResearchReference') }}</dt><dd><code>{{ selected.config.research_reference.run_id }}</code></dd>
+          <dt>{{ t('researchInputHash') }}</dt><dd><code>{{ selected.config.research_reference.input_hash }}</code></dd>
+          <dt>{{ t('researchOutputHash') }}</dt><dd><code>{{ selected.config.research_reference.output_hash }}</code></dd>
+        </template>
         <dt>{{ t('status') }}</dt><dd>{{ versionStatus(selected) }}</dd>
         <template v-if="selected.approved_at">
           <dt>{{ t('strategyApprovedAt') }}</dt><dd>{{ formatTime(selected.approved_at) }}</dd>
@@ -87,7 +96,8 @@ export default {
   props: {
     active: { type: Boolean, required: true },
     canWrite: { type: Boolean, required: true },
-    symbols: { type: Array, required: true }
+    symbols: { type: Array, required: true },
+    researchSeed: { type: Object, default: null }
   },
   data () {
     return {
@@ -97,6 +107,7 @@ export default {
       busy: false,
       error: '',
       request: null,
+      researchReference: null,
       draft: { symbol: undefined, quantity: 100, threshold: null, limit_price: null, max_cash: null }
     }
   },
@@ -113,6 +124,14 @@ export default {
     active: {
       immediate: true,
       handler (open) { if (open) this.refresh() }
+    },
+    researchSeed: {
+      immediate: true,
+      handler (seed) {
+        if (!seed || !this.canWrite) return
+        this.draft = { symbol: seed.symbol, quantity: null, threshold: null, limit_price: null, max_cash: null }
+        this.researchReference = { ...seed.reference }
+      }
     }
   },
   methods: {
@@ -128,7 +147,8 @@ export default {
         strategy_version_hash_mismatch: 'strategyVersionChanged',
         another_strategy_version_approved: 'strategyAnotherApproved',
         invalid_strategy_state_transition: 'strategyVersionChanged',
-        strategy_symbol_not_watched: 'strategySymbolNotWatched'
+        strategy_symbol_not_watched: 'strategySymbolNotWatched',
+        strategy_research_unavailable: 'strategyResearchUnavailable'
       }
       const code = (error.response && error.response.data && error.response.data.msg) || error.message
       return this.t(keys[code] || 'strategyOperationFailed')
@@ -168,6 +188,7 @@ export default {
           limit_price: String(this.draft.limit_price),
           max_cash: String(this.draft.max_cash)
         }
+        if (this.researchReference) config.research_reference = this.researchReference
         const fingerprint = JSON.stringify(config)
         if (!this.request || this.request.fingerprint !== fingerprint) this.request = { fingerprint, key: newKey() }
         const result = await paperRequest(versionPath, 'post', { config, request_key: this.request.key })

@@ -61,7 +61,7 @@
     {
       "id": "recommendations_and_approval",
       "status": "deployed_pending_user_approval",
-      "acceptance": "Evidence-linked research and immutable buy-once strategy versions are deployed locally. Human approval and revocation bind the exact version and configuration SHA-256. The actual authenticated endpoint and strategy browser bundle passed on Nov18 with no versions or decisions recorded. User approval, executable strategy generation and evaluation remain open."
+      "acceptance": "Evidence-linked research and human-controlled buy-once strategies are available. A paper draft can now bind an exact completed candidate through the research run ID and both hashes. A restored real backup verified draft creation through the authenticated endpoint with no decisions or activations written. Actual user approval, automated proposal generation and evaluation remain open."
     },
     {
       "id": "approved_strategy_auto_paper",

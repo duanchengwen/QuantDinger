@@ -288,6 +288,101 @@ def test_pg_queue_idempotency_isolation_freezes_preferences(store):
     assert repo.run_once(Adapter(), Themes(), News()) is None
 
 
+def test_pg_research_reference_binds_exact_candidate_to_human_strategy(dedicated_database):
+    from contextlib import closing
+    import psycopg2
+    from psycopg2 import sql
+    from app.ashare.market import SOURCE
+    from app.ashare.schema import MIGRATIONS
+    from app.ashare.strategy_versions import StrategyVersions, config_hash
+    from app.ashare.web_store import WebStore
+
+    with closing(psycopg2.connect(dedicated_database)) as connection:
+        with connection, connection.cursor() as cursor:
+            schema = 'case_' + uuid.uuid4().hex
+            cursor.execute(sql.SQL('CREATE SCHEMA {}').format(sql.Identifier(schema)))
+            cursor.execute(sql.SQL('SET search_path TO {}').format(sql.Identifier(schema)))
+            for name in MIGRATIONS:
+                cursor.execute((Path(__file__).parents[2] / 'migrations' / name).read_text())
+        for tenant in ('user_1', 'user_2'):
+            web = WebStore(connection, tenant)
+            web.initialize('10000')
+            web.save_settings([SYMBOL, 'sz.000001'], 5, {'topics': ['ai']})
+        research = r.ResearchStore(connection, 'user_1')
+        pending = research.request_run('request-0001')
+        market_time = datetime(2026, 11, 18, 2, 0, 0, tzinfo=timezone.utc)
+        current = market_time
+        versions = StrategyVersions(connection, 'user_1', 'paper', clock=lambda: current)
+        config = {'mode': 'paper', 'kind': 'buy_once_below', 'symbol': SYMBOL,
+                  'threshold': '10.00', 'limit_price': '10.00', 'quantity': 100, 'max_cash': '1020.00'}
+        reference = {'run_id': pending['id'], 'input_hash': pending['input_hash'], 'output_hash': '0'*64}
+        with pytest.raises(ValueError, match='strategy_research_unavailable'):
+            versions.create({**config, 'research_reference': reference}, 'ref-pending', 1)
+        run = research.run_once(Adapter(), Themes(), News())
+        reference = {'run_id': run['id'], 'input_hash': run['input_hash'], 'output_hash': run['output_hash']}
+        linked = {**config, 'research_reference': reference}
+        other = StrategyVersions(connection, 'user_2', 'paper')
+        with pytest.raises(ValueError, match='strategy_research_unavailable'):
+            other.create(linked, 'ref-foreign', 2)
+        with pytest.raises(ValueError, match='strategy_research_unavailable'):
+            versions.create({**linked, 'symbol': 'sz.000001'}, 'ref-wrong-issuer', 1)
+        with pytest.raises(ValueError, match='strategy_research_unavailable'):
+            versions.create({**linked, 'research_reference': {**reference, 'output_hash': '0'*64}}, 'ref-wrong-hash', 1)
+        with pytest.raises(ValueError, match='invalid_strategy_research_reference'):
+            versions.create({**linked, 'research_reference': {**reference, 'execution_allowed': True}}, 'ref-extra', 1)
+        draft = versions.create(linked, 'ref-correct', 1)
+        assert draft['config']['research_reference'] == reference
+        assert draft['config_sha256'] == config_hash(linked) != config_hash(config)
+        assert draft['status'] == 'draft' and draft['execution_allowed'] is False
+        assert versions.create(linked, 'ref-correct', 1) == draft
+        with pytest.raises(ValueError, match='strategy_request_key_conflict'):
+            versions.create(config, 'ref-correct', 1)
+        with pytest.raises(ValueError, match='strategy_version_hash_mismatch'):
+            versions.decide(draft['id'], config_hash(config), 'approved', True, 1)
+        with connection, connection.cursor() as cursor:
+            cursor.execute("UPDATE qd_ashare_research_runs SET summary='bad' WHERE id=%s", (run['id'],))
+        with pytest.raises(ValueError, match='strategy_research_unavailable'):
+            versions.decide(draft['id'], draft['config_sha256'], 'approved', True, 1)
+        with connection, connection.cursor() as cursor:
+            cursor.execute("UPDATE qd_ashare_research_runs SET summary=%s WHERE id=%s", (run['summary'], run['id']))
+        approval = versions.decide(draft['id'], draft['config_sha256'], 'approved', True, 1)
+        assert approval['status'] == 'approved' and approval['execution_allowed'] is False
+        with connection, connection.cursor() as cursor:
+            cursor.execute("UPDATE qd_ashare_research_runs SET summary='bad' WHERE id=%s", (run['id'],))
+        with pytest.raises(ValueError, match='strategy_research_unavailable'):
+            versions.decide(draft['id'], draft['config_sha256'], 'activated', True, 1)
+        with connection, connection.cursor() as cursor:
+            cursor.execute("UPDATE qd_ashare_research_runs SET summary=%s WHERE id=%s", (run['summary'], run['id']))
+        activation = versions.decide(draft['id'], draft['config_sha256'], 'activated', True, 1)
+        assert activation['execution_allowed'] is True
+        reviewed = WebStore(connection, 'user_1').review({
+            'symbol': SYMBOL, 'trading_day': '2026-11-18', 'is_trading_day': True, 'reviewed': True,
+            'approval_method': 'explicit_human_review', 'reviewed_by': 1, 'reviewed_at': market_time.isoformat(),
+            'suspended': False, 'st': False, 'limit_down': '9', 'limit_up': '11',
+        })
+        current = market_time + timedelta(seconds=10)
+        quote = {'symbol': SYMBOL, 'source': SOURCE, 'name': '公司', 'quote_id': 'verified-fixture',
+                 'exchange_time': current.isoformat(), 'received_at': current.isoformat(),
+                 'bid_size': 100, 'ask_size': 100, 'volume': 1000, 'evidence_sha256': 'a'*64,
+                 'bid': '9.99', 'ask': '10', 'last': '10', 'previous_close': '10',
+                 'limit_down': '9', 'limit_up': '11', 'open': '10', 'high': '10.1', 'low': '9.9'}
+        assert versions.broker.on_quote(quote, reviewed, current) == []
+        with connection, connection.cursor() as cursor:
+            cursor.execute("UPDATE qd_ashare_research_runs SET summary='bad' WHERE id=%s", (run['id'],))
+        with pytest.raises(ValueError, match='strategy_research_unavailable'):
+            versions.submit_on_quote(quote, reviewed)
+        assert versions.broker.snapshot()['orders'] == []
+        with connection, connection.cursor() as cursor:
+            cursor.execute("UPDATE qd_ashare_research_runs SET summary=%s WHERE id=%s", (run['summary'], run['id']))
+        assert versions.submit_on_quote(quote, reviewed)['status'] == 'open'
+        assert versions.submit_on_quote(quote, reviewed) is None
+        with connection, connection.cursor() as cursor:
+            cursor.execute("UPDATE qd_ashare_research_runs SET summary='bad' WHERE id=%s", (run['id'],))
+        assert versions.decide(draft['id'], draft['config_sha256'], 'revoked', True, 1)['status'] == 'revoked'
+        assert [row['status'] for row in versions.broker.snapshot()['orders']] == ['cancelled']
+        assert web.broker.snapshot()['orders'] == []
+
+
 def test_pg_configuration_and_no_evidence_never_call_model(store):
     repo, _ = store
     repo.request_run('request-0001')

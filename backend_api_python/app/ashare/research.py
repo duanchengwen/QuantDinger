@@ -402,8 +402,11 @@ class ResearchStore:
 
     def get_run(self, run_id):
         with self.connection, self.connection.cursor(cursor_factory=RealDictCursor) as cursor:
-            cursor.execute('SELECT * FROM qd_ashare_research_runs WHERE tenant_id=%s AND account_id=%s AND id=%s', (*self.key, run_id))
-            return self._public(cursor.fetchone())
+            return self.find_run(cursor, run_id)
+
+    def find_run(self, cursor, run_id):
+        cursor.execute('SELECT * FROM qd_ashare_research_runs WHERE tenant_id=%s AND account_id=%s AND id=%s', (*self.key, run_id))
+        return self._public(cursor.fetchone())
 
     def list_runs(self, limit=20):
         if type(limit) is not int or not 1 <= limit <= 50:

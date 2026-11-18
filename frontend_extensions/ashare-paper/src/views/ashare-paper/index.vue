@@ -206,6 +206,12 @@
                     <p>{{ t('researchEvidenceIds') }}: {{ (candidate.evidence_news_ids || []).join(', ') || '—' }}</p>
                     <strong>{{ t('researchRisks') }}</strong>
                     <ul><li v-for="(risk, index) in candidate.risks" :key="index">{{ risk }}</li></ul>
+                    <a-button
+                      v-if="!readOnly && state.account"
+                      size="small"
+                      :disabled="!symbols.includes(candidate.symbol)"
+                      @click="startResearchDraft(candidate.symbol)">{{ t('strategyStartResearchDraft') }}</a-button>
+                    <p v-if="!readOnly && state.account && !symbols.includes(candidate.symbol)" class="paper-muted">{{ t('strategySymbolNotWatched') }}</p>
                   </section>
                   <template v-if="researchView.detail.risks.length"><h4>{{ t('researchRisks') }}</h4><ul><li v-for="(risk, index) in researchView.detail.risks" :key="index">{{ risk }}</li></ul></template>
                 </template>
@@ -219,7 +225,8 @@
           <strategy-versions
             :active="activeTab === 'strategy-versions'"
             :can-write="!readOnly && Boolean(state.account)"
-            :symbols="symbols" />
+            :symbols="symbols"
+            :research-seed="strategyResearchSeed" />
         </a-tab-pane>
         <a-tab-pane key="settings" :tab="t('settings')">
           <h3>{{ t('researchPreferences') }}</h3>
@@ -308,6 +315,7 @@ reviewChecked: false,
 review: { symbol: '', trading_day: '', evidence: '', limit_down: null, limit_up: null },
       bot: { webhook_url: '', signing_secret: '' },
       activeTab: 'orders',
+      strategyResearchSeed: null,
 reports: [],
 reportsLoading: false,
 reportsError: '',
@@ -371,6 +379,16 @@ reportsError: '',
   mounted () { document.addEventListener('visibilitychange', this.syncResearchVisibility); this.clock = setInterval(() => { this.now = Date.now() }, 1000); this.poll() },
   beforeDestroy () { document.removeEventListener('visibilitychange', this.syncResearchVisibility); this.researchController.dispose(); this.themeController.dispose(); this.stopped = true; clearTimeout(this.timer); clearInterval(this.clock) },
   methods: {
+    startResearchDraft (symbol) {
+      const run = this.researchView.detail
+      if (this.readOnly || !this.state.account || !this.symbols.includes(symbol) ||
+          !run || run.status !== 'completed' || !run.candidates.some(item => item.symbol === symbol)) return
+      this.strategyResearchSeed = {
+        symbol, reference: { run_id: run.id, input_hash: run.input_hash, output_hash: run.output_hash }
+      }
+      this.activeTab = 'strategy-versions'
+      this.syncResearchVisibility()
+    },
     t (key, values) { return this.$t('ashare.' + key, values) },
     errorMessage (err) { const message = (err.response && err.response.data && err.response.data.msg) || err.message || this.t('error'); const keys = { auth_service_unavailable: 'service', paper_database_unavailable: 'service', paper_database_not_configured: 'service', paper_worker_stale: 'worker', paper_worker_not_healthy: 'worker', outside_continuous_auction: 'session', not_trading_day: 'session', fresh_quote_required: 'quote', 'stale quote': 'quote', 'insufficient available cash': 'cash', 'insufficient T+1 available shares': 'shares' }; return keys[message] ? this.t('error.' + keys[message]) : message },
     columns (keys) { const names = { acquired_day: 'acquired', limit_price: 'price', fee: 'fees', order_id: 'id', exchange_time: 'time' }; return keys.map(key => ({ title: this.t(names[key] || key), dataIndex: key, ...(['side', 'status'].includes(key) ? { scopedSlots: { customRender: key } } : {}), ...(key === 'exchange_time' ? { scopedSlots: { customRender: 'time' } } : {}) })) },

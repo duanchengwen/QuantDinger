@@ -19,6 +19,7 @@ function mount (request, canWrite = true) {
   for (const [name, getter] of Object.entries(component.computed)) {
     Object.defineProperty(state, name, { get: getter.bind(state) })
   }
+  state.applyResearchSeed = component.watch.researchSeed.handler.bind(state)
   return state
 }
 
@@ -78,5 +79,25 @@ test('retry an uncertain draft save with the same request key', async () => {
   await state.create()
   assert.equal(requests.length, 2)
   assert.deepEqual(requests[0], requests[1])
+  assert.equal(state.selected.status, 'draft')
+})
+
+test('opening a candidate starts a blank draft and saving attaches only its research reference', async () => {
+  const calls = []
+  const state = mount((path, method, data) => {
+    calls.push({ path, method, data })
+    return { id: 'a'.repeat(32), config: data.config, status: 'draft' }
+  })
+  Object.assign(state.draft, { symbol: 'sz.000001', quantity: 300, limit_price: 10, threshold: 10, max_cash: 4000 })
+  const reference = { run_id: 'b'.repeat(32), input_hash: 'c'.repeat(64), output_hash: 'd'.repeat(64) }
+  state.applyResearchSeed({ symbol: 'sz.000001', reference })
+  await state.create()
+  assert.equal(calls.length, 0)
+  assert.deepEqual(state.draft, { symbol: 'sz.000001', quantity: null, limit_price: null, threshold: null, max_cash: null })
+  Object.assign(state.draft, { quantity: 100, limit_price: 10, threshold: 10, max_cash: 1200 })
+  await state.create()
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].path, '/strategy-versions')
+  assert.deepEqual(calls[0].data.config.research_reference, reference)
   assert.equal(state.selected.status, 'draft')
 })

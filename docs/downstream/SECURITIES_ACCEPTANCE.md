@@ -93,3 +93,11 @@ Future daily notifications record the included report dates and summary SHA-256 
 Tests used a simulated notifier to cover acknowledgement, rejection, an ambiguous response, disabled configuration, interruption and tenant isolation. Python 3.11 and 3.12 each passed 508 A-share tests, and the frontend passed 41 tests and its production build.
 
 Local deployment completed at 16:12 China time. All four services were healthy, and 14 critical table fingerprints and private model settings matched the verified backup. The authenticated endpoint returned both existing daily reports with their original content and unrecorded receipt status. Two earlier attempts automatically rolled back after verification included volatile timer metadata and truncated a 4.4 MB browser bundle at 4 MB. The final check verified the configuration files and complete bundle. Existing reports were preserved, and actual delivery is pending a future natural daily report. Evidence is `feishu-receipt-upgrade-rehearsal-20261118.json` and `feishu-receipt-production-deployment-20261118.json`.
+
+## Drafting a strategy from a research candidate
+
+A signed-in user can carry a completed research candidate from their watchlist into a buy-once paper draft. The version hash binds the research run ID and input and output hashes. Draft creation, approval, activation and first order submission verify account ownership, candidate membership and research integrity. Entry parameters come from the user. Approval and activation require separate confirmations. Revocation can release unfilled reserves even when the research is unavailable.
+
+Python 3.11 and 3.12 each passed 509 A-share tests, and the frontend passed 42 tests, ESLint and the production build. A controlled quote produced one revocable simulated order after research integrity was restored. The authenticated endpoint also created a draft using an actual archived result in an isolated database restored from backup. The decision, activation and ledger tables matched the backup. No model requests were made. Evidence is `strategy-reference-upgrade-rehearsal-20261118.json`. Actual user approval and natural intraday execution remain open.
+
+Versions linked to research require a reader that understands the optional reference. The rehearsal verified a direct rollback before creation of a linked draft.

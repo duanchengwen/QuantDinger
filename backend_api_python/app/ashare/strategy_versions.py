@@ -14,6 +14,7 @@ from app.ashare.runtime import utc_now
 
 
 CONFIG_FIELDS = frozenset({'mode', 'kind', 'symbol', 'quantity', 'threshold', 'limit_price', 'max_cash'})
+RESEARCH_REFERENCE = 'research_reference'
 VERSION_ID = re.compile(r'[a-f0-9]{32}')
 SHA256 = re.compile(r'[a-f0-9]{64}')
 REQUEST_KEY = re.compile(r'[A-Za-z0-9_-]{8,100}')
@@ -48,8 +49,14 @@ def _positive_cash(value):
 
 
 def normalize_config(config):
-    if not isinstance(config, dict) or set(config) != CONFIG_FIELDS:
+    if not isinstance(config, dict) or set(config) - {RESEARCH_REFERENCE} != CONFIG_FIELDS:
         raise ValueError('invalid_strategy_config')
+    if RESEARCH_REFERENCE in config:
+        reference = config[RESEARCH_REFERENCE]
+        if (not isinstance(reference, dict) or set(reference) != {'run_id', 'input_hash', 'output_hash'}
+                or not _matches(VERSION_ID, reference['run_id'])
+                or not all(_matches(SHA256, reference[key]) for key in ('input_hash', 'output_hash'))):
+            raise ValueError('invalid_strategy_research_reference')
     if config['mode'] != 'paper' or config['kind'] != 'buy_once_below':
         raise ValueError('unsupported_paper_strategy')
     if not supported(config['symbol']):
@@ -114,6 +121,21 @@ class StrategyVersions:
             raise ValueError('strategy_version_not_found')
         return self._view(row)
 
+    def _verify_research(self, cursor, config):
+        reference = config.get(RESEARCH_REFERENCE)
+        if reference is None:
+            return
+        from app.ashare.research import ResearchError, ResearchStore
+
+        try:
+            run = ResearchStore(self.connection, *self.key).find_run(cursor, reference['run_id'])
+        except ResearchError:
+            raise ValueError('strategy_research_unavailable') from None
+        if (run is None or run['status'] != 'completed'
+                or any(run[key] != reference[key] for key in ('input_hash', 'output_hash'))
+                or not any(candidate['symbol'] == config['symbol'] for candidate in run['candidates'])):
+            raise ValueError('strategy_research_unavailable')
+
     def list(self, limit):
         if type(limit) is not int or not 1 <= limit <= 50:
             raise ValueError('invalid_strategy_limit')
@@ -139,6 +161,7 @@ class StrategyVersions:
                 return version
             if config['symbol'] not in web['settings'].get('symbols', []):
                 raise ValueError('strategy_symbol_not_watched')
+            self._verify_research(cursor, config)
             version_id = uuid.uuid4().hex
             cursor.execute("""INSERT INTO qd_ashare_strategy_versions
                 (tenant_id,account_id,id,request_key,config,config_sha256,created_by)
@@ -165,6 +188,7 @@ class StrategyVersions:
                     return version
                 if version['config']['symbol'] not in web['settings'].get('symbols', []):
                     raise ValueError('strategy_symbol_not_watched')
+                self._verify_research(cursor, version['config'])
                 cursor.execute("""INSERT INTO qd_ashare_strategy_activations
                     (tenant_id,account_id,version_id,config_sha256,actor_user_id,activated_at)
                     VALUES (%s,%s,%s,%s,%s,%s)""", (*self.key, version_id, digest, actor, self.clock()))
@@ -176,6 +200,7 @@ class StrategyVersions:
             if decision == 'approved':
                 if version['config']['symbol'] not in web['settings'].get('symbols', []):
                     raise ValueError('strategy_symbol_not_watched')
+                self._verify_research(cursor, version['config'])
                 cursor.execute(SELECT_VERSION + ' AND a.decided_at IS NOT NULL AND r.decided_at IS NULL LIMIT 1', self.key)
                 if cursor.fetchone() is not None:
                     raise ValueError('another_strategy_version_approved')
@@ -226,6 +251,7 @@ class StrategyVersions:
             key = STRATEGY_ORDER_PREFIX + version['id']
             if self.broker._find_order(cursor, key) is not None:
                 return None
+            self._verify_research(cursor, config)
             order = self.broker._place_order_locked(
                 cursor, account, key, symbol, 'buy', config['quantity'], price, now,
                 now.astimezone(SHANGHAI).date(), max_cash=Decimal(config['max_cash']),
