@@ -117,3 +117,5 @@ The local deployment switched to `69bb73e` after the close at 17:27 China time o
 The version detail reads the exact version's order from its account ledger. It shows state, filled shares and amount, fees, and remaining reserve. Controlled quotes covered activation with no order, submission, partial fill, cancellation, and end-of-day expiry. Separate manual orders for the same symbol and another account's order with the same key were excluded.
 
 Python 3.11 and 3.12 each passed 511 A-share tests. The frontend passed 44 tests, ESLint and the production build. The first natural intraday order after an actual user approval remains open.
+
+In an isolated restoration of a real backup, controlled quotes produced a strategy order whose authenticated history went from open to expired, releasing its reserve. Local deployment switched to `065cad3` at 17:57 China time on November 18. All four services were healthy. Fourteen critical table fingerprints and private model settings were preserved. The production strategy list was empty. Evidence is `strategy-order-upgrade-rehearsal-20261118.json` and `strategy-order-production-deployment-20261118.json`.
