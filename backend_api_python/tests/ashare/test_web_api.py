@@ -141,6 +141,7 @@ def test_daily_reports_are_read_only_bounded_and_tenant_scoped(client):
                     ('user_' + str(client.test_user), '{"cash_end":"10000.00","equity_end":null,"reconciliation":{"ok":true}}'))
     result = call(client, '/daily-reports', method='GET')
     assert result.status_code == 200 and len(result.json['data']) == 1
+    assert result.json['data'][0]['feishu_delivery'] == {'status': 'not_observed'}
     assert result.json['data'][0]['report']['equity_end'] is None
     assert call(client, '/daily-reports', method='GET', token='viewer').status_code == 200
     assert call(client, '/daily-reports', method='GET', token='other').json['data'] == []

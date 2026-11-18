@@ -761,7 +761,7 @@
         "summary": "Read immutable daily paper ledger reports for the authenticated account",
         "responses": {
           "200": {
-            "description": "Human envelope code=1; data is an array of trading_day, generated_at and report. Missing equity is null, never an invented valuation."
+            "description": "Human envelope code=1. Each item includes trading_day, generated_at, report, and feishu_delivery. Delivery status is not_observed, unknown, webhook_acknowledged, disabled, rejected or failed. Webhook acknowledgement records provider acceptance. Missing equity is null."
           },
           "400": {
             "description": "Rejected request"

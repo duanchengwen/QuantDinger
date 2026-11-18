@@ -1,12 +1,14 @@
 """Managed account acceptance using real PostgreSQL and an external quote feed."""
 import os
 from datetime import datetime, timezone
+from hashlib import sha256
 from pathlib import Path
 import uuid
 
 import pytest
 
 from app.ashare.managed_worker import ManagedWorker
+from app.ashare.operations import DAILY_FEISHU_ATTEMPT, DAILY_FEISHU_RESULT, list_daily_reports
 from app.ashare.strategy_versions import StrategyVersions
 from app.ashare.web_store import WebStore
 
@@ -144,6 +146,57 @@ def test_new_daily_report_sends_ledger_summary_once_without_retrying_unknown_del
     assert len(sent) == 1
     assert store.state()["rules"] == {}
     assert store.state()["fills"] == []
+    receipt = list_daily_reports(connection, store.tenant_id)[0]["feishu_delivery"]
+    assert receipt["status"] == "unknown" and "recorded_at" in receipt
+
+
+@pytest.mark.parametrize(("response", "status"), [
+    ({"status": "sent"}, "webhook_acknowledged"),
+    ({"status": "failed", "error": "webhook_rejected"}, "rejected"),
+    ({"status": "failed", "error": "invalid_webhook_response"}, "unknown"),
+    ({"status": "disabled"}, "disabled"),
+])
+def test_new_daily_report_records_only_sanitized_delivery_events(account, response, status):
+    connection, store, path = account
+    sent = []
+
+    def notification(text, **_credentials):
+        observed = list_daily_reports(connection, store.tenant_id)[0]["feishu_delivery"]
+        assert observed["status"] == "unknown" and "recorded_at" not in observed
+        sent.append(text)
+        return response
+
+    worker = ManagedWorker(connection, path, fetcher=lambda *a, **k: [quote(instant())], notifier=notification)
+    worker.process_account(store.tenant_id, now=instant(hour=8))
+    assert len(sent) == 1
+    assert list_daily_reports(connection, store.tenant_id)[0]["feishu_delivery"]["status"] == status
+    assert list_daily_reports(connection, "other-tenant") == []
+    with connection, connection.cursor() as cursor:
+        cursor.execute("SELECT event,details FROM qd_ashare_audit WHERE event IN (%s,%s) ORDER BY id",
+                       (DAILY_FEISHU_ATTEMPT, DAILY_FEISHU_RESULT))
+        (attempt_event, intent), (result_event, receipt) = cursor.fetchall()
+    assert attempt_event == DAILY_FEISHU_ATTEMPT and result_event == DAILY_FEISHU_RESULT
+    assert intent == {"attempt_id": receipt["attempt_id"], "trading_days": ["2026-11-17"],
+                      "summary_sha256": sha256(sent[0].encode()).hexdigest()}
+    assert receipt == {**intent, "status": status}
+
+
+def test_worker_interruption_keeps_ambiguous_daily_delivery_without_replaying(account):
+    connection, store, path = account
+    attempts = []
+
+    def interruption(*args, **kwargs):
+        attempts.append("interrupted")
+        raise KeyboardInterrupt
+
+    worker = ManagedWorker(connection, path, fetcher=lambda *a, **k: [quote(instant())], notifier=interruption)
+    with pytest.raises(KeyboardInterrupt):
+        worker.process_account(store.tenant_id, now=instant(hour=8))
+    restarted = ManagedWorker(connection, path, fetcher=worker.fetcher, notifier=interruption)
+    restarted.process_account(store.tenant_id, now=instant(hour=8, second=8))
+    assert attempts == ["interrupted"]
+    receipt = list_daily_reports(connection, store.tenant_id)[0]["feishu_delivery"]
+    assert receipt["status"] == "unknown" and "recorded_at" not in receipt
 
 
 def test_database_connection_reconnect_uses_capped_backoff(tmp_path):

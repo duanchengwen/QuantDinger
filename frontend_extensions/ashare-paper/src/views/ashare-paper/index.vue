@@ -84,9 +84,10 @@
             row-key="trading_day"
             size="small"
             :pagination="{ pageSize: 8 }"
-            :scroll="{ x: 800 }">
+            :scroll="{ x: 950 }">
             <template slot="money" slot-scope="value">{{ value == null ? '—' : money(value) }}</template>
             <template slot="reconciliation" slot-scope="value"><a-tag :color="value === true ? 'green' : 'red'">{{ value === true ? t('reconciled') : t('reconciliationFailed') }}</a-tag></template>
+            <template slot="reportFeishu" slot-scope="value">{{ reportFeishuLabel(value) }}</template>
             <template slot="time" slot-scope="value">{{ formatTime(value) }}</template>
             <template slot="emptyText">{{ t('noReports') }}</template>
           </a-table>
@@ -349,7 +350,7 @@ reportsError: '',
     positionColumns () { return this.columns(['symbol', 'name', 'quantity', 'acquired_day']) },
     orderColumns () { return [...this.columns(['id', 'symbol', 'side', 'quantity', 'filled', 'limit_price', 'status']), { title: this.t('action'), key: 'cancel', scopedSlots: { customRender: 'cancel' } }] },
     historyTruncated () { return Object.values((this.state.history || {}).truncated || {}).some(Boolean) },
-    reportRows () { return this.reports.map(item => ({ ...item.report, trading_day: item.trading_day, generated_at: item.generated_at, reconciliation_ok: item.report.reconciliation && item.report.reconciliation.ok, observation: item.report.observation_summary && item.report.observation_summary.poll_count != null ? `${item.report.observation_summary.wall_clock_polls} / ${item.report.observation_summary.controlled_time_polls}` : '—' })) },
+    reportRows () { return this.reports.map(item => ({ ...item.report, trading_day: item.trading_day, generated_at: item.generated_at, feishu_delivery: item.feishu_delivery, reconciliation_ok: item.report.reconciliation && item.report.reconciliation.ok, observation: item.report.observation_summary && item.report.observation_summary.poll_count != null ? `${item.report.observation_summary.wall_clock_polls} / ${item.report.observation_summary.controlled_time_polls}` : '—' })) },
     reportColumns () {
  return [
       { title: this.t('reportDay'), dataIndex: 'trading_day' },
@@ -360,6 +361,7 @@ reportsError: '',
       { title: this.t('reportFills'), dataIndex: 'day_fill_count' },
       { title: this.t('reconciliation'), dataIndex: 'reconciliation_ok', scopedSlots: { customRender: 'reconciliation' } },
       { title: this.t('reportObservation'), dataIndex: 'observation' },
+      { title: this.t('reportFeishu'), dataIndex: 'feishu_delivery', scopedSlots: { customRender: 'reportFeishu' } },
       { title: this.t('reportGenerated'), dataIndex: 'generated_at', scopedSlots: { customRender: 'time' } }
     ]
 },
@@ -401,6 +403,10 @@ reportsError: '',
     async loadUniverse () { if (this.universeLoading) return; this.universeLoading = true; try { this.universeResult = await paperRequest('/universe?trading_day=' + encodeURIComponent(this.universeDay) + '&limit=100&offset=' + this.universeOffset); this.universeError = '' } catch (err) { this.universeResult = null; this.universeError = this.errorMessage(err) } finally { this.universeLoading = false } },
     queryUniverse () { this.universeOffset = 0; this.loadUniverse() },
     pageUniverse (offset) { this.universeOffset = Math.max(0, this.universeOffset + offset); this.loadUniverse() },
+    reportFeishuLabel (value) {
+      const known = ['unknown', 'webhook_acknowledged', 'disabled', 'rejected', 'failed']
+      return this.t('reportFeishu.' + (value && known.includes(value.status) ? value.status : 'not_observed'))
+    },
     async loadReports () { if (this.reportsLoading || this.stopped) return; this.reportsLoading = true; try { const result = await paperRequest('/daily-reports?limit=30'); if (!this.stopped) { this.reports = result; this.reportsError = '' } } catch (err) { this.reportsError = this.errorMessage(err) } finally { this.reportsLoading = false } },
     async refresh () { if (this.loading || this.stopped) return; this.loading = true; try { const data = await paperRequest(); if (this.stopped) return; this.now = Date.now(); this.state = { ...emptyState(), ...data }; this.error = ''; this.updatedAt = new Date().toISOString(); if (!this.settingsLoaded) { this.settingsSymbols = this.symbols.join(','); this.settingsInterval = this.state.settings.interval_seconds || 5; this.researchPreferences = { topics: [], follow_current_events: false, custom_topics: '', ...(this.state.settings.research_preferences || {}) }; this.order.symbol = this.symbols[0]; this.settingsLoaded = true } } catch (err) { this.error = this.errorMessage(err) } finally { this.loading = false } },
     async poll () { if (this.stopped) return; if (!document.hidden) await this.refresh(); if (!this.stopped) this.timer = setTimeout(() => this.poll(), 3000) },

@@ -17,10 +17,13 @@ import threading
 import psycopg2
 
 from app.ashare.calendar_rules import market_session
-from app.ashare.daily_notification import format_daily_notification
+from app.ashare.daily_notification import daily_feishu_status, daily_notification_summary
 from app.ashare.market import fetch_quotes
 from app.ashare.notifications import notify_text
-from app.ashare.operations import complete_daily_reports, reconcile_account, record_poll, write_heartbeat
+from app.ashare.operations import (
+    DAILY_FEISHU_ATTEMPT, DAILY_FEISHU_RESULT, complete_daily_reports, reconcile_account,
+    record_daily_feishu_audit, record_poll, write_heartbeat,
+)
 from app.ashare.runtime import claim_worker, process_quotes, utc_now
 from app.ashare.schema import get_database_url
 from app.ashare.strategy_versions import StrategyVersions
@@ -139,21 +142,36 @@ class ManagedWorker:
         store.observe(quotes, worker)
         changed = worker["state"] != before["worker"].get("state")
         if self.notifications_enabled and (worker["fills"] or changed or reports):
+            delivery = None
             try:
+                if reports:
+                    message, days = daily_notification_summary(
+                        reports, settings["symbols"], account_id=account_id, worker_state=worker["state"]
+                    )
+                    if days:
+                        attempt = {"attempt_id": uuid.uuid4().hex, "trading_days": days,
+                                   "summary_sha256": hashlib.sha256(message.encode("utf-8")).hexdigest()}
+                        record_daily_feishu_audit(self.connection, tenant_id, account_id, DAILY_FEISHU_ATTEMPT, attempt)
+                        delivery = attempt
+                else:
+                    message = (
+                        f"[模拟交易] {account_id} 状态={worker['state']} "
+                        f"本轮虚拟成交={len(worker['fills'])} 时间={worker['observed_at']} "
+                        f"新增模拟日报={len(reports)}"
+                    )
                 credentials = store.notification_credentials()
-                message = (format_daily_notification(
-                    reports, settings["symbols"], account_id=account_id,
-                    worker_state=worker["state"]) if reports else
-                    f"[模拟交易] {account_id} 状态={worker['state']} "
-                    f"本轮虚拟成交={len(worker['fills'])} 时间={worker['observed_at']} "
-                    f"新增模拟日报={len(reports)}")
                 notification = self.notifier(
                     message,
                     webhook_url=credentials.get("webhook_url", ""),
                     signing_secret=credentials.get("signing_secret", ""),
                 )
+            except psycopg2.Error:
+                raise
             except Exception:
                 notification = {"status": "failed", "error": "notification_unavailable"}
+            if delivery is not None:
+                record_daily_feishu_audit(self.connection, tenant_id, account_id, DAILY_FEISHU_RESULT,
+                                         {**delivery, "status": daily_feishu_status(notification)})
             worker["notification"] = notification
             store.observe(quotes, worker)
         return worker

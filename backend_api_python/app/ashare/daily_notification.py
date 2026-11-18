@@ -8,6 +8,23 @@ MAX_REPORTS = 10
 MAX_POSITIONS = 10
 
 
+def daily_feishu_status(result):
+    """Summarize transport evidence without keeping credentials or response bodies."""
+    if not isinstance(result, dict):
+        return "unknown"
+    status = result.get("status")
+    error = result.get("error")
+    if status == "sent":
+        return "webhook_acknowledged"
+    if status == "disabled":
+        return "disabled"
+    if error == "webhook_rejected":
+        return "rejected"
+    if error in ("invalid_webhook_configuration", "invalid_message", "message_too_large"):
+        return "failed"
+    return "unknown"
+
+
 def _text(value, limit=100):
     if value is None:
         return "未提供"
@@ -32,6 +49,10 @@ def _payload_size(text):
 
 
 def format_daily_notification(reports, watchlist, *, account_id="paper", worker_state=None):
+    return daily_notification_summary(reports, watchlist, account_id=account_id, worker_state=worker_state)[0]
+
+
+def daily_notification_summary(reports, watchlist, *, account_id="paper", worker_state=None):
     """Format only newly created reports; never load account history or retry."""
     lines = [f"[模拟交易日报] 账户={_text(account_id, 64)} 状态={_text(worker_state, 40)}",
              "AI 选股/推荐：尚未接入；下列关注证券不代表推荐。",
@@ -40,9 +61,11 @@ def format_daily_notification(reports, watchlist, *, account_id="paper", worker_
     ordered = sorted(reports, key=lambda report: str(report.get("trading_day", "")))
     selected = ordered[-MAX_REPORTS:]
     omitted_reports = max(0, len(ordered) - len(selected))
+    report_lines = []
     for report in selected:
         lines.append("")
         label = "（补生成）" if report.get("late_generation") else ""
+        report_lines.append((len(lines), report.get("trading_day")))
         lines.append(f"交易日：{_text(report.get('trading_day'), 10)}{label}")
         lines.append(f"期末现金：{_money(report.get('cash_end'))} 元（现金余额不等于收益）")
         lines.append(f"当日成交：{_text(report.get('day_fill_count'), 12)} 笔；"
@@ -73,4 +96,4 @@ def format_daily_notification(reports, watchlist, *, account_id="paper", worker_
         while lines and _payload_size("\n".join(lines) + truncation) > MAX_PAYLOAD_BYTES:
             lines.pop()
         text = "\n".join(lines) + truncation
-    return text
+    return text, [day for index, day in report_lines if index < len(lines) and isinstance(day, str)]

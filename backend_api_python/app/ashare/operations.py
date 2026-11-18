@@ -10,6 +10,9 @@ from app.ashare.broker import PaperBroker
 from app.ashare.calendar_rules import SHANGHAI, trading_day_status
 
 PROCESS_NAME = "managed_paper_worker"
+DAILY_FEISHU_ATTEMPT = "daily_report_feishu_attempt"
+DAILY_FEISHU_RESULT = "daily_report_feishu_result"
+DAILY_FEISHU_STATUSES = frozenset({"unknown", "webhook_acknowledged", "disabled", "rejected", "failed"})
 
 
 def write_heartbeat(connection, instance_id, now, details):
@@ -260,4 +263,38 @@ def list_daily_reports(connection, tenant_id, account_id="paper", limit=30):
         raise ValueError("invalid_report_limit")
     with connection, connection.cursor(cursor_factory=RealDictCursor) as cursor:
         cursor.execute("SELECT trading_day,generated_at,report FROM qd_ashare_daily_reports WHERE tenant_id=%s AND account_id=%s ORDER BY trading_day DESC LIMIT %s", (tenant_id, account_id, limit))
-        return [{"trading_day": row["trading_day"].isoformat(), "generated_at": row["generated_at"].isoformat(), "report": row["report"]} for row in cursor.fetchall()]
+        reports = [{
+            "trading_day": row["trading_day"].isoformat(), "generated_at": row["generated_at"].isoformat(),
+            "report": row["report"], "feishu_delivery": {"status": "not_observed"},
+        } for row in cursor.fetchall()]
+        if not reports:
+            return reports
+        by_day = {report["trading_day"]: report for report in reports}
+        cursor.execute("""SELECT event,recorded_at,details FROM qd_ashare_audit
+            WHERE tenant_id=%s AND account_id=%s AND event IN (%s,%s) AND details->'trading_days' ?| %s
+            ORDER BY id""", (tenant_id, account_id, DAILY_FEISHU_ATTEMPT, DAILY_FEISHU_RESULT, list(by_day)))
+        attempts = {}
+        for row in cursor:
+            entry = row["details"]
+            if not isinstance(entry, dict) or not isinstance(entry.get("attempt_id"), str):
+                continue
+            if row["event"] == DAILY_FEISHU_ATTEMPT:
+                days = entry.get("trading_days")
+                if not isinstance(days, list) or not all(isinstance(day, str) for day in days):
+                    continue
+                receipt = {"status": "unknown", "attempted_at": row["recorded_at"].isoformat()}
+                attempts[entry["attempt_id"]] = receipt
+                for day in days:
+                    if day in by_day:
+                        by_day[day]["feishu_delivery"] = receipt
+            elif entry["attempt_id"] in attempts and isinstance(entry.get("status"), str) and entry["status"] in DAILY_FEISHU_STATUSES:
+                attempts[entry["attempt_id"]].update(
+                    status=entry["status"], recorded_at=row["recorded_at"].isoformat(),
+                )
+        return reports
+
+
+def record_daily_feishu_audit(connection, tenant_id, account_id, event, details):
+    with connection, connection.cursor() as cursor:
+        cursor.execute("INSERT INTO qd_ashare_audit(tenant_id,account_id,event,details) VALUES(%s,%s,%s,%s::jsonb)",
+                       (tenant_id, account_id, event, json.dumps(details)))

@@ -1,7 +1,7 @@
 """Daily Feishu content derives from ledger reports, never fabricated returns."""
 import json
 
-from app.ashare.daily_notification import format_daily_notification
+from app.ashare.daily_notification import daily_notification_summary, format_daily_notification
 
 
 def report(day="2026-11-17"):
@@ -28,12 +28,13 @@ def test_catchup_and_position_truncation_are_explicit():
     rows = [{**report(f"2026-11-{day:02d}"), "late_generation": True,
              "positions_end": [{"symbol": f"sz.{index:06d}", "quantity": 100} for index in range(30)]}
             for day in range(1, 32)]
-    text = format_daily_notification(rows, [])
+    text, days = daily_notification_summary(rows, [])
     assert "（补生成）" in text
     assert "日报展示已截断" in text
     assert "持仓展示已截断" in text
     assert "2026-11-31" in text
     assert "2026-11-01" not in text
+    assert days == [row["trading_day"] for row in rows if "交易日：" + row["trading_day"] in text]
     payload = {"msg_type": "text", "timestamp": "1234567890", "sign": "a" * 100,
                "content": {"text": "[模拟交易 / PAPER]\n" + text}}
     assert len(json.dumps(payload, ensure_ascii=False).encode()) < 20000

@@ -85,3 +85,9 @@ Local evidence in the parent workspace's `work/quantdinger-natural-acceptance/` 
 The coverage estimate combines the 15-second freshness windows of hash-verified batches. The longest afternoon interval without a fresh archived batch was about 17.9 seconds. Historical trial receipts from November 17 morning are separate from the November 17 managed afternoon observations. Five natural trading days and reliable intraday quality remain open.
 
 The November 18 report was generated naturally at 15:00:00 China time and reconciled. It recorded zero fills and missing verified closing valuation, leaving equity unavailable. The account held zero outstanding orders at the close. Feishu delivery remains unconfirmed. Local proof comprises `coverage-20261117-18-close.json` and `natural-close-ledger-20261118.json`.
+
+## Feishu report receipts
+
+Future daily notifications record the included report dates and summary SHA-256 before sending. A separate audit entry records the sanitized outcome. The daily ledger shows missing or unknown receipts, webhook acknowledgement or rejection, disabled configuration and pre-send validation failure. Webhook acknowledgement records provider acceptance. Group display requires separate confirmation. An interrupted send stays unknown across restart. Existing reports keep an unrecorded receipt status.
+
+Tests used a simulated notifier to cover acknowledgement, rejection, an ambiguous response, disabled configuration, interruption and tenant isolation. Python 3.11 and 3.12 each passed 508 A-share tests, and the frontend passed 41 tests and its production build. The receipt release awaits local deployment, with actual delivery pending a future natural daily report.
