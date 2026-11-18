@@ -27,6 +27,7 @@ LOCK_WAIT_SECONDS = 15
 MAX_OUTPUT_BYTES = 16384
 MAX_EXCERPT_BYTES = 1024 * 1024
 MAX_EXCERPT_WIRE_BYTES = 4 * ((MAX_EXCERPT_BYTES + 2) // 3)
+EXCERPT_DERIVATION_SECONDS = 120
 CLEANUP_MARKER = '.research-job-cleanup-unknown.json'
 STATUS_NAME = 'research-job-status.json'
 SAFE_RESEARCH_ERRORS = frozenset({
@@ -163,8 +164,9 @@ def load_job_status(state):
         stamps = [data['updated_at']]
         for job, item in data['jobs'].items():
             allowed = {'job','status','started_at','updated_at','execution_allowed','id','receipt_id','item_count','source_hash','error'}
+            valid_statuses = STATUSES | ({'unknown', 'waiting_for_excerpt'} if job == 'work' else {'unknown'})
             if (job not in TIMEOUTS or not isinstance(item, dict) or set(item) - allowed
-                    or item.get('job') != job or item.get('status') not in STATUSES | {'unknown'}
+                    or item.get('job') != job or item.get('status') not in valid_statuses
                     or item.get('execution_allowed') is not False):
                 raise ValueError()
             stamps += [item['started_at'], item['updated_at']]
@@ -236,13 +238,20 @@ def _work_excerpt_payload(path, digest):
 
 
 def _latest_excerpt_payload(state, directory):
+    """Return None during the bounded derivation window if proof is still pending."""
     job = load_job_status(state)['jobs'].get('news', {})
     if job.get('status') != 'ingested':
         return {}
+    age = (datetime.now(UTC) - datetime.fromisoformat(job['updated_at'])).total_seconds()
+    if age < 0:
+        raise ValueError('invalid_news_excerpt_evidence')
+    pending = None if age < EXCERPT_DERIVATION_SECONDS else {}
     receipt_id = job['receipt_id']
     path = directory / (receipt_id + '.json')
+    if path.is_symlink():
+        raise ValueError('invalid_news_excerpt_evidence')
     if not path.exists():
-        return {}
+        return pending
     metadata = json.loads((state / 'deployment.json').read_bytes())
     project = metadata['project']
     ops.check_project(project)
@@ -251,9 +260,9 @@ def _latest_excerpt_payload(state, directory):
         journal = subprocess.run(['journalctl', '--user', '-u', unit, '-n', '40', '--no-pager', '-o', 'cat'],
                                  capture_output=True, text=True, timeout=8, check=False)
     except (OSError, subprocess.TimeoutExpired):
-        return {}
+        return pending
     if journal.returncode or len(journal.stdout.encode('utf-8')) > MAX_OUTPUT_BYTES:
-        return {}
+        return pending
     digests = set()
     for line in journal.stdout.splitlines():
         if not line.startswith('{'):
@@ -270,8 +279,8 @@ def _latest_excerpt_payload(state, directory):
                 raise ValueError('invalid_news_excerpt_evidence')
             digests.add(digest)
     if not digests:
-        return {}
-    if len(digests) != 1 or path.is_symlink():
+        return pending
+    if len(digests) != 1:
         raise ValueError('invalid_news_excerpt_evidence')
     return _work_excerpt_payload(path, digests.pop())
 
@@ -284,7 +293,6 @@ def run_job(state, job, *, tenant_id=None, account_id='paper', idempotency_key=N
     if excerpt_dir is not None:
         if job != 'work' or excerpt is not None or excerpt_sha256 is not None:
             raise ValueError('invalid_news_excerpt_evidence')
-        payload.update(_latest_excerpt_payload(state, excerpt_dir))
     elif excerpt is not None or excerpt_sha256 is not None:
         if job != 'work' or excerpt is None:
             raise ValueError('invalid_news_excerpt_evidence')
@@ -295,6 +303,14 @@ def run_job(state, job, *, tenant_id=None, account_id='paper', idempotency_key=N
         if marker.exists() or marker.is_symlink():
             _record_job_status(state, {'job':job, 'status':'failed', 'error':'prior_container_cleanup_requires_review', 'execution_allowed':False}, started_at)
             raise ValueError('prior_container_cleanup_requires_review')
+        if excerpt_dir is not None:
+            evidence = _latest_excerpt_payload(state, excerpt_dir)
+            if evidence is None:
+                outcome = {'job': job, 'status': 'waiting_for_excerpt', 'execution_allowed': False}
+                _record_job_status(state, outcome, started_at)
+                print(json.dumps(outcome))
+                return 0
+            payload.update(evidence)
         metadata = json.loads((state / 'deployment.json').read_text())
         ops.check_project(metadata['project'])
         container = 'quantdinger-research-' + job + '-' + uuid.uuid4().hex

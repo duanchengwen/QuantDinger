@@ -16,7 +16,7 @@ from hashlib import sha256
 from pathlib import Path
 
 import paper_stack as ops
-from research_jobs import load_job_status
+from research_jobs import EXCERPT_DERIVATION_SECONDS, load_job_status
 
 RECEIPT_ID = re.compile(r"[a-f0-9]{32}\Z")
 ARTICLE_ID = re.compile(r"[0-9]{1,20}\Z")
@@ -449,7 +449,7 @@ def write_units(state, output_dir, unit_dir):
     ops.private_write(
         unit,
         f"[Unit]\nDescription=Derive verified paper announcement excerpts ({project})\n\n"
-        f"[Service]\nType=oneshot\nTimeoutStartSec=120\nExecStart={command}\n",
+        f"[Service]\nType=oneshot\nTimeoutStartSec={EXCERPT_DERIVATION_SECONDS}\nExecStart={command}\n",
     )
     ops.private_write(dropin, f"[Unit]\nOnSuccess={service}\n")
     return unit, dropin

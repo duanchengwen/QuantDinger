@@ -8,7 +8,7 @@ import signal
 import subprocess
 import sys
 from contextlib import ExitStack, redirect_stdout
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from unittest.mock import Mock, patch
@@ -182,12 +182,79 @@ def test_latest_excerpt_requires_exact_successful_journal_proof(state, mode):
                 jobs._latest_excerpt_payload(state, state)
         else:
             actual = jobs._latest_excerpt_payload(state, state)
-            assert actual == (jobs._work_excerpt_payload(path, digest) if mode == 'valid' else {})
+            if mode == 'valid':
+                assert actual == jobs._work_excerpt_payload(path, digest)
+            elif mode == 'not_ingested':
+                assert actual == {}
+            else:
+                assert actual is None
     if mode in ('no_file', 'not_ingested'):
         journal.assert_not_called()
     else:
         assert 'quantdinger-research-news-pdf-paper-test.service' in journal.call_args.args[0]
         assert journal.call_args.kwargs['timeout'] == 8
+
+
+def test_work_reads_new_ingestion_under_lock_and_waits_without_starting_a_worker(state, capsys):
+    receipt = 'a' * 32
+    captured = {'job': 'news', 'status': 'ingested', 'receipt_id': receipt, 'item_count': 1,
+                'source_hash': 'b' * 64, 'execution_allowed': False}
+    stamp = datetime.now(jobs.UTC).isoformat()
+    with ExitStack() as ingest_lock:
+        ingest_lock.enter_context(jobs.ops.operation_lock(state))
+        jobs._record_job_status(state, {'job': 'news', 'status': 'started', 'execution_allowed': False}, stamp)
+
+        def finish_ingestion(_):
+            jobs._record_job_status(state, captured, stamp)
+            ingest_lock.close()
+
+        with (
+            patch.object(jobs.ops.time, 'sleep', side_effect=finish_ingestion) as wait,
+            patch.object(jobs.ops, 'compose') as compose,
+            patch.object(jobs.subprocess, 'run') as run,
+        ):
+            assert jobs.run_job(state, 'work', excerpt_dir=state) == 0
+        wait.assert_called_once()
+        compose.assert_not_called()
+        run.assert_not_called()
+    assert json.loads(capsys.readouterr().out)['status'] == 'waiting_for_excerpt'
+    assert jobs.load_job_status(state)['jobs']['work']['status'] == 'waiting_for_excerpt'
+
+    artifact = b'accepted excerpt evidence'
+    (state / (receipt + '.json')).write_bytes(artifact)
+    digest = hashlib.sha256(artifact).hexdigest()
+    proof = {'status': 'extracted', 'receipt_id': receipt, 'artifact_sha256': digest, 'pdfs': 1,
+             'execution_allowed': False}
+    journal = SimpleNamespace(returncode=0, stdout=json.dumps(proof))
+    idle = SimpleNamespace(returncode=0, stdout='{"job":"work","status":"idle","execution_allowed":false}')
+    with (
+        patch.object(jobs.ops, 'compose', return_value=['fixture']),
+        patch.object(jobs, 'cleanup_container', return_value=True),
+        patch.object(jobs.subprocess, 'run', side_effect=[journal, idle]) as run,
+    ):
+        assert jobs.run_job(state, 'work', excerpt_dir=state) == 0
+    assert run.call_count == 2
+    payload = json.loads(run.call_args.kwargs['input'])
+    assert payload == {'job': 'work', 'excerpt': base64.b64encode(artifact).decode(), 'excerpt_sha256': digest}
+
+
+def test_work_uses_title_fallback_after_derivation_deadline(state, capsys):
+    stamp = datetime.now(jobs.UTC)
+    captured = {'job': 'news', 'status': 'ingested', 'receipt_id': 'a' * 32, 'item_count': 1,
+                'source_hash': 'b' * 64, 'execution_allowed': False}
+    jobs._record_job_status(state, captured, stamp.isoformat())
+    idle = SimpleNamespace(returncode=0, stdout='{"job":"work","status":"idle","execution_allowed":false}')
+    with (
+        patch.object(jobs, 'datetime', wraps=datetime) as clock,
+        patch.object(jobs.ops, 'compose', return_value=['fixture']),
+        patch.object(jobs, 'cleanup_container', return_value=True),
+        patch.object(jobs.subprocess, 'run', return_value=idle) as run,
+    ):
+        clock.now.return_value = stamp + timedelta(seconds=jobs.EXCERPT_DERIVATION_SECONDS + 1)
+        assert jobs.run_job(state, 'work', excerpt_dir=state) == 0
+    run.assert_called_once()
+    assert json.loads(run.call_args.kwargs['input']) == {'job': 'work'}
+    assert json.loads(capsys.readouterr().out)['status'] == 'idle'
 
 
 def child(payload, hour=9, run_result=None, request_error=None, news_error=None, arbitrary_error=None):

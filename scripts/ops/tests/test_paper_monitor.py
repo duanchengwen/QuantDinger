@@ -339,7 +339,7 @@ class MonitorTests(unittest.TestCase):
             self.assertEqual(report['status'], 'attention')
 
     def test_research_model_configuration_and_missing_evidence_are_pending_not_success(self):
-        for status in ('needs_model_configuration', 'no_evidence'):
+        for status in ('needs_model_configuration', 'no_evidence', 'waiting_for_excerpt'):
             report = self.report(self.research_payload(status=status))
             self.assertEqual(report['issues'], [])
             self.assertIn('research_work_job_' + status, report['pending_acceptance'])

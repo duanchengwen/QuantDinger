@@ -249,6 +249,8 @@ def assess_research(payload, now, jobs_now, issues, pending):
             issues.append(prefix + '_safety_changed')
         if status in ('failed', 'unknown'):
             issues.append(prefix + '_state_' + status)
+        elif (name, status) == ('work', 'waiting_for_excerpt'):
+            pending.append(prefix + '_waiting_for_excerpt')
         elif status in ('needs_model_configuration', 'no_evidence', 'skipped_before_window', 'skipped_active', 'skipped_daily_limit', 'queued', 'started'):
             # The request unit's queued acknowledgement never tracks the run lifecycle.
             if (name, status) != ('request', 'queued'):

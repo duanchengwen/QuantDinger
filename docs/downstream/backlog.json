@@ -51,7 +51,7 @@
     {
       "id": "scheduled_news_ingestion",
       "status": "accepted_limited_scope",
-      "acceptance": "CNinfo retains original JSON/PDF records. The Nov18 13:00 natural schedule produced 8 verified excerpts. The excerpt-aware worker and UI passed a real-evidence replay and deployed locally at 15:03. A scheduled real model result using an excerpt and broader industry news remain open."
+      "acceptance": "CNinfo retains original JSON/PDF records. The Nov18 13:00 natural schedule produced 8 verified excerpts and 18:00 produced 7. The host worker now defers claims during the bounded excerpt derivation window. A scheduled real model result using an excerpt and broader industry news remain open."
     },
     {
       "id": "deepseek_research_agent",
