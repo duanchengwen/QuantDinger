@@ -106,8 +106,11 @@ def _load_excerpt(path, artifact):
     return r.load_excerpt_receipt(path, r._hash(body))
 
 
-def test_preview_adds_only_bounded_excerpt_to_existing_issuer(excerpt_evidence):
+@pytest.mark.parametrize('live_archive', [False, True])
+def test_preview_adds_only_bounded_excerpt_to_existing_issuer(excerpt_evidence, live_archive):
     path, artifact, item, row = excerpt_evidence
+    if live_archive:
+        artifact['evidence_archive_sha256'] = artifact.pop('evidence_backup_sha256')
     receipt = _load_excerpt(path, artifact)
     base, _ = r.build_input({'topics': ['ai']}, NOW, Themes(), News([item], [row]))
     result, missing = r.build_input({'topics': ['ai']}, NOW, Themes(), News([item], [row]),

@@ -51,7 +51,7 @@
     {
       "id": "scheduled_news_ingestion",
       "status": "accepted_limited_scope",
-      "acceptance": "CNinfo title-only three-topic ingestion retains original JSON/PDF records. The network-isolated extractor verified 16 excerpts (10 distinct PDFs) from two receipts. A read-only research preview checked real cutoffs before extraction, after extraction and after a superseding receipt, including an exact input hash. The Nov18 12:00 timer recovered after a transport failure and yielded 8 verified items. Automated extraction, scheduled excerpt research and broad industry news remain open."
+      "acceptance": "CNinfo retains original JSON/PDF records. A local extraction hook reads each successful receipt without provider refetch or backup pause. The Nov18 13:00 natural schedule produced 8 excerpts with verified receipt and artifact hashes. The read-only preview has also passed actual point-in-time checks. Scheduled research using excerpts and broad industry news remain open."
     },
     {
       "id": "deepseek_research_agent",

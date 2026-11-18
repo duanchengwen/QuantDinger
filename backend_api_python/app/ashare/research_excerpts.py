@@ -43,6 +43,7 @@ def load_excerpt_receipt(path, expected_sha256):
         artifact = json.loads(raw)
         received = _time(artifact["archive_received_at"])
         derived = _time(artifact["derived_at"])
+        archive_hash_fields = {"evidence_backup_sha256", "evidence_archive_sha256"} & artifact.keys()
         if (
             artifact["schema_version"] != 1
             or artifact["source"] != "cninfo"
@@ -53,7 +54,8 @@ def load_excerpt_receipt(path, expected_sha256):
             or artifact["page_range_requested"] != [1, 3]
             or not RECEIPT_ID.fullmatch(artifact["receipt_id"])
             or not SHA256.fullmatch(artifact["receipt_manifest_sha256"])
-            or not SHA256.fullmatch(artifact["evidence_backup_sha256"])
+            or len(archive_hash_fields) != 1
+            or not SHA256.fullmatch(artifact[next(iter(archive_hash_fields))])
             or derived < received
             or not isinstance(artifact["items"], list)
             or len(artifact["items"]) > 15

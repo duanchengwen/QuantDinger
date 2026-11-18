@@ -1,5 +1,6 @@
 """The optional extractor only reads verified receipt members and emits bounded excerpts."""
 
+import gzip
 import io
 import json
 import subprocess
@@ -118,6 +119,110 @@ class ExtractionTest(unittest.TestCase):
         self.assertEqual(result["items"][0]["source_pdf_sha256"], sha(PDF))
         self.assertEqual(result["items"][0]["source_index_sha256"], sha(INDEX))
         self.assertIsNone(result["items"][0]["published_at"])
+
+    def test_latest_uses_existing_ingestion_receipt_only_once(self):
+        manifest = self.write_backup()
+        status = {
+            "jobs": {
+                "news": {
+                    "status": "ingested",
+                    "source_hash": sha(manifest),
+                    "receipt_id": RECEIPT,
+                    "item_count": 1,
+                }
+            }
+        }
+        expected_archive = gzip.decompress(self.archive.read_bytes())
+
+        def export(state, receipt, target):
+            self.assertEqual(receipt, RECEIPT)
+            target.write_bytes(expected_archive)
+
+        with (
+            patch.object(news_pdf, "load_job_status", return_value=status),
+            patch.object(news_pdf, "_export_receipt", side_effect=export) as read,
+            patch.object(news_pdf, "_sandbox_version", return_value="22.02.0"),
+            patch.object(news_pdf, "_extract", return_value={"status": "extracted"}),
+        ):
+            result = news_pdf.extract_latest(self.source, self.root)
+            again = news_pdf.extract_latest(self.source, self.root)
+        self.assertEqual(result["status"], "extracted")
+        self.assertFalse(result["execution_allowed"])
+        self.assertEqual(again["status"], "already_extracted")
+        read.assert_called_once()
+        raw = (self.root / f"{RECEIPT}.json").read_bytes()
+        artifact = json.loads(raw)
+        self.assertEqual(result["artifact_sha256"], sha(raw))
+        self.assertEqual(artifact["evidence_archive_sha256"], sha(expected_archive))
+        self.assertEqual(artifact["receipt_manifest_sha256"], sha(manifest))
+
+    def test_latest_rejects_archive_different_from_completed_receipt(self):
+        self.write_backup()
+        status = {
+            "jobs": {
+                "news": {
+                    "status": "ingested",
+                    "source_hash": "a" * 64,
+                    "receipt_id": RECEIPT,
+                    "item_count": 1,
+                }
+            }
+        }
+
+        def export(state, receipt, target):
+            target.write_bytes(gzip.decompress(self.archive.read_bytes()))
+
+        with (
+            patch.object(news_pdf, "load_job_status", return_value=status),
+            patch.object(news_pdf, "_export_receipt", side_effect=export),
+            patch.object(news_pdf, "_sandbox_version") as start,
+            self.assertRaisesRegex(
+                news_pdf.EvidenceError, "news_manifest_hash_mismatch"
+            ),
+        ):
+            news_pdf.extract_latest(self.source, self.root)
+        start.assert_not_called()
+        self.assertFalse((self.root / f"{RECEIPT}.json").exists())
+
+    def test_latest_does_not_read_archive_during_ingestion_or_after_failure(self):
+        for status in ("started", "failed", "unknown"):
+            with (
+                self.subTest(status=status),
+                patch.object(
+                    news_pdf,
+                    "load_job_status",
+                    return_value={"jobs": {"news": {"status": status}}},
+                ),
+                patch.object(news_pdf, "_export_receipt") as export,
+            ):
+                result = news_pdf.extract_latest(self.source, self.root)
+                self.assertEqual(result["status"], "waiting_for_ingestion")
+                export.assert_not_called()
+
+    def test_templates_trigger_only_after_ingestion_success(self):
+        (self.source / "deployment.json").write_text(json.dumps({"project": "qd-test"}))
+        unit_dir = self.root / "units"
+        service, dropin = news_pdf.write_units(self.source, self.root, unit_dir)
+        self.assertEqual(service.name, "quantdinger-research-news-pdf-qd-test.service")
+        self.assertEqual(
+            dropin.parent.name, "quantdinger-research-news-qd-test.service.d"
+        )
+        self.assertIn("TimeoutStartSec=120\n", service.read_text())
+        self.assertIn('"--state-dir"', service.read_text())
+        self.assertNotIn("install", service.read_text())
+        self.assertEqual(dropin.read_text(), f"[Unit]\nOnSuccess={service.name}\n")
+        with self.assertRaisesRegex(
+            news_pdf.EvidenceError, "news_pdf_unit_already_exists"
+        ):
+            news_pdf.write_units(self.source, self.root, unit_dir)
+
+    def test_oversized_sidecar_creates_no_private_output(self):
+        oversized = {"excerpt": "字" * (news_pdf.MAX_OUTPUT_BYTES // 3 + 1)}
+        with self.assertRaisesRegex(
+            news_pdf.EvidenceError, "news_excerpt_artifact_size_exceeded"
+        ):
+            news_pdf._write_excerpt(self.output, oversized)
+        self.assertFalse(self.output.exists())
 
     def test_backup_digest_mismatch_stops_before_the_parser(self):
         self.write_backup()
