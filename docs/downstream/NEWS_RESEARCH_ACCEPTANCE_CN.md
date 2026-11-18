@@ -42,3 +42,11 @@
 新增 Ubuntu 离线命令 `python scripts/ops/news_pdf.py --backup "$PAPER_NEWS_BACKUP" --receipt "$PAPER_NEWS_RECEIPT" --output "$PAPER_NEWS_EXCERPT"`。使用现有完整备份、其内已归档收据编号及仓库外的新输出文件。命令校验备份、原始公告索引和 PDF，之后通过 Bubblewrap 隔离网络及文件访问，使用 Poppler `pdftotext` 提取前 3 页，单条最多保留 12,000 字符。扫描件或无正文的文件会记录文本不可用，提取超时单独记录，暂未配置 OCR。
 
 私有结果分别记录提供商发布时间、原档接收时间、正文提取时间、解析器版本和各层 SHA-256。两份真实收据均完成 8 条节选，合计 16 条、10 份不同原件。结果限本地留存。Ubuntu 的 Python 3.11 和 3.12 运维测试各 133 项通过，其中包含篡改拒绝、资源上限及私有文件权限验证。新命令未接入线上研究或定时任务，本次没有额外调用 DeepSeek。证据位于工程父目录 `work/quantdinger-natural-acceptance/` 的 `cninfo-excerpt-verified-20261118.json` 和 `cninfo-excerpt-1100-20261118.json`。
+
+## 研究输入的只读预览
+
+在具备 A 股资料只读访问的后端环境运行 `python -m app.ashare.research preview-excerpts --topics ai robotics new_energy --excerpt "$PAPER_NEWS_EXCERPT" --excerpt-sha256 "$PAPER_NEWS_EXCERPT_SHA256"`，可用 `--known-at` 指定带时区的研究时点。命令只输出输入摘要、哈希和条目数量。参考校验值应来自已核验的节选文件。原始收据版本、索引与 PDF 哈希、来源链接、发布时间和提取时间一致后，最多为每条合格公告附加 2,000 字符。节选按不可信来源文本处理，候选资格仍来自已核验主题成分和公告明确发行人。
+
+使用真实归档和只读数据库，对 11:53、11:58、12:15 三个北京时间时点核验。可用节选数依次为 0、1、0，分别对应提取前、提取后和新回执替换旧版本后。三个时点的候选数量均为 1，输入哈希与冻结证据复算一致。Python 3.11 和 3.12 各通过 157 项资讯和研究定向测试。定时研究继续使用标题，预览没有请求模型或触发交易。报告为仓库外验收目录的 `excerpt-research-readonly-cli-20261118.json`。
+
+11:30 定时采集发生一次传输故障，原定 12:00 任务自动恢复，归档 8 条公告，原始归档 SHA-256 校验通过。

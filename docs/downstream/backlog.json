@@ -51,7 +51,7 @@
     {
       "id": "scheduled_news_ingestion",
       "status": "accepted_limited_scope",
-      "acceptance": "CNinfo title-only three-topic ingestion retains original JSON/PDF records. First scheduled capture at 08:00 China time on Nov18 has 8 verified items and 2 oversized exclusions. The standalone network-isolated extractor verified and derived bounded excerpts for 16 PDF entries (10 distinct source hashes) from two actual receipts. Automated extraction, research integration and broad industry news remain open. See NEWS_RESEARCH_ACCEPTANCE_CN.md."
+      "acceptance": "CNinfo title-only three-topic ingestion retains original JSON/PDF records. The network-isolated extractor verified 16 excerpts (10 distinct PDFs) from two receipts. A read-only research preview checked real cutoffs before extraction, after extraction and after a superseding receipt, including an exact input hash. The Nov18 12:00 timer recovered after a transport failure and yielded 8 verified items. Automated extraction, scheduled excerpt research and broad industry news remain open."
     },
     {
       "id": "deepseek_research_agent",
