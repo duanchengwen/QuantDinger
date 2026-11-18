@@ -116,7 +116,7 @@ def test_documented_routes_match_registered_routes():
     spec=json.loads((Path(__file__).parents[3]/"docs/downstream/paper-web-openapi.json").read_text())
     app=Flask(__name__)
     app.register_blueprint(blueprint)
-    actual={(rule.rule.replace("/api/ashare-paper", "").replace("<int:order_id>","{order_id}").replace("<board_code>","{board_code}").replace("<run_id>","{run_id}"),method.lower()) for rule in app.url_map.iter_rules() if rule.rule.startswith("/api/ashare-paper") for method in rule.methods if method not in {"HEAD","OPTIONS"}}
+    actual={(rule.rule.replace("/api/ashare-paper", "").replace("<int:order_id>","{order_id}").replace("<board_code>","{board_code}").replace("<run_id>","{run_id}").replace("<version_id>","{version_id}"),method.lower()) for rule in app.url_map.iter_rules() if rule.rule.startswith("/api/ashare-paper") for method in rule.methods if method not in {"HEAD","OPTIONS"}}
     documented={(path,method) for path,operations in spec["paths"].items() for method in operations}
     assert actual == documented
 
@@ -326,3 +326,116 @@ def test_research_evidence_errors_are_redacted(client, monkeypatch):
     assert response.status_code == 503
     assert response.json['msg'] == 'research_evidence_unavailable'
     assert 'private-path' not in response.text
+
+
+def _strategy_config(**changes):
+    return {"mode": "paper", "kind": "buy_once_below", "symbol": "sz.000001",
+            "quantity": 100, "threshold": "10", "limit_price": "9.99", "max_cash": "1100", **changes}
+
+
+def test_immutable_strategy_version_human_approval_and_revocation(client):
+    base = "/strategy-versions"
+    request = {"config": _strategy_config(), "request_key": "strategy-request-1"}
+    assert client.get("/api/ashare-paper" + base).status_code == 401
+    assert call(client, base, request, token="viewer").status_code == 403
+    assert call(client, base, request).json["msg"] == "paper_account_required"
+    assert call(client, "/initialize", {"initial_cash": "10000"}).status_code == 200
+    draft = call(client, base, request).json["data"]
+    assert draft["status"] == "draft"
+    assert draft["execution_allowed"] is False and draft["created_by"] == client.test_user
+    assert draft["config"]["threshold"] == "10.00"
+    assert call(client, base, request).json["data"] == draft
+    conflict = {**request, "config": _strategy_config(threshold="10.01")}
+    assert call(client, base, conflict).json["msg"] == "strategy_request_key_conflict"
+    assert call(client, base + "?limit=51", method="GET").status_code == 400
+    assert call(client, base, method="GET").json["data"]["versions"] == [draft]
+    assert call(client, base, token="other", method="GET").json["data"]["versions"] == []
+
+    decision_path = f"{base}/{draft['id']}/decision"
+    approval = {"config_sha256": draft["config_sha256"], "decision": "approved", "confirmed": True}
+    assert call(client, decision_path, approval, token="viewer").status_code == 403
+    assert call(client, "/initialize", {"initial_cash": "5000"}, token="other").status_code == 200
+    assert call(client, decision_path, approval, token="other").json["msg"] == "strategy_version_not_found"
+    assert call(client, decision_path, {**approval, "confirmed": 1}).json["msg"] == "explicit_human_confirmation_required"
+    assert call(client, decision_path, {**approval, "config_sha256": "0" * 64}).json["msg"] == "strategy_version_hash_mismatch"
+    assert call(client, decision_path, {**approval, "actor_user_id": client.test_user + 1}).status_code == 400
+
+    approved = call(client, decision_path, approval).json["data"]
+    assert approved["status"] == "approved" and approved["approved_by"] == client.test_user
+    assert approved["execution_allowed"] is False
+    assert call(client, decision_path, approval).json["data"] == approved
+    other_draft = call(client, base, {**request, "request_key": "strategy-request-2"}).json["data"]
+    other_decision = f"{base}/{other_draft['id']}/decision"
+    assert call(client, other_decision, approval).json["msg"] == "another_strategy_version_approved"
+
+    revocation = {**approval, "decision": "revoked"}
+    revoked = call(client, decision_path, revocation).json["data"]
+    assert revoked["status"] == "revoked" and revoked["revoked_by"] == client.test_user
+    assert revoked["config_sha256"] == draft["config_sha256"] and revoked["approved_at"] == approved["approved_at"]
+    assert call(client, decision_path, revocation).json["data"] == revoked
+    assert call(client, decision_path, approval).json["msg"] == "invalid_strategy_state_transition"
+    assert call(client, other_decision, approval).json["data"]["status"] == "approved"
+    account = call(client, "/state", method="GET").json["data"]
+    assert account["orders"] == [] and account["account"]["cash"] == "10000.00"
+
+
+@pytest.mark.parametrize("config", [
+    _strategy_config(mode="live"),
+    _strategy_config(kind="execute_code"),
+    _strategy_config(broker="anything"),
+    _strategy_config(quantity=True),
+    _strategy_config(quantity=101),
+    _strategy_config(limit_price="1e1"),
+    _strategy_config(max_cash="999"),
+    _strategy_config(symbol="sz.000002"),
+])
+def test_strategy_draft_rejects_unsupported_or_unbounded_config(client, config):
+    call(client, "/initialize", {"initial_cash": "10000"})
+    request = {"config": config, "request_key": "strategy-invalid"}
+    assert call(client, "/strategy-versions", request).status_code == 400
+
+
+def test_concurrent_decisions_approve_only_one_version(client):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    from app.ashare.strategy_versions import StrategyVersions
+
+    call(client, "/initialize", {"initial_cash": "10000"})
+    base = "/strategy-versions"
+    versions = [call(client, base, {"config": _strategy_config(), "request_key": f"parallel-{i}"}).json["data"]
+                for i in range(2)]
+    start = Barrier(2, timeout=5)
+
+    def approve(version):
+        with closing(psycopg2.connect(os.environ["TEST_ASHARE_DATABASE_URL"], options="-c lock_timeout=5000")) as conn:
+            store = StrategyVersions(conn, f"user_{client.test_user}", "paper")
+            start.wait()
+            try:
+                return store.decide(version["id"], version["config_sha256"], "approved", True,
+                                    client.test_user)["status"]
+            except ValueError as exc:
+                return str(exc)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        assert sorted(pool.map(approve, versions)) == ["another_strategy_version_approved", "approved"]
+
+
+def test_strategy_storage_rejects_rewrites_and_wrong_hash_link(client):
+    call(client, "/initialize", {"initial_cash": "10000"})
+    draft = call(client, "/strategy-versions",
+                 {"config": _strategy_config(), "request_key": "storage-invariants"}).json["data"]
+    with closing(psycopg2.connect(os.environ["TEST_ASHARE_DATABASE_URL"])) as conn:
+        with pytest.raises(psycopg2.errors.CheckViolation), conn, conn.cursor() as cur:
+            cur.execute("""INSERT INTO qd_ashare_strategy_versions
+                (tenant_id, account_id, id, request_key, config, config_sha256, created_by)
+                VALUES (%s,'paper',%s,'invalid-direct-config','{}',%s,%s)""",
+                (f"user_{client.test_user}", "a" * 32, "0" * 64, client.test_user))
+        with pytest.raises(psycopg2.errors.ForeignKeyViolation), conn, conn.cursor() as cur:
+            cur.execute("""INSERT INTO qd_ashare_strategy_decisions
+                (tenant_id, account_id, version_id, config_sha256, decision, actor_user_id)
+                VALUES (%s,'paper',%s,%s,'approved',%s)""",
+                (f"user_{client.test_user}", draft["id"], "0" * 64, client.test_user))
+        for query in ("UPDATE qd_ashare_strategy_versions SET config='{}' WHERE false",
+                      "DELETE FROM qd_ashare_strategy_decisions WHERE false"):
+            with pytest.raises(psycopg2.errors.RaiseException, match="strategy_records_are_append_only"), conn, conn.cursor() as cur:
+                cur.execute(query)

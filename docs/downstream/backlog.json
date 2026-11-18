@@ -60,8 +60,8 @@
     },
     {
       "id": "recommendations_and_approval",
-      "status": "partial_research_only",
-      "acceptance": "Evidence-referenced issuer research candidates implemented and actual model result verified. Versioned strategy generation/evaluation and human approval of exact version remain pending; research is never execution authorization."
+      "status": "implemented_pending_local_deployment",
+      "acceptance": "Evidence-linked research is deployed. The paper workspace adds immutable buy-once rule versions with explicit human approval and revocation bound to the exact configuration SHA-256. PostgreSQL integration and frontend build passed. Local deployment and real user approval remain pending. Executable strategy generation/evaluation and automatic paper execution remain separate work."
     },
     {
       "id": "approved_strategy_auto_paper",

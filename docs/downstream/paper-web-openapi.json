@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "A-share human paper API",
-    "version": "0.6.0",
+    "version": "0.7.0",
     "description": "Human JWT only; tenant derives from verified user. Real brokerage and Agent writes remain disabled."
   },
   "servers": [
@@ -228,6 +228,124 @@
             "enum": [
               false
             ]
+          }
+        }
+      },
+      "PaperStrategyConfig": {
+        "type": "object",
+        "required": [
+          "mode",
+          "kind",
+          "symbol",
+          "quantity",
+          "threshold",
+          "limit_price",
+          "max_cash"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "paper"
+            ]
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "buy_once_below"
+            ]
+          },
+          "symbol": {
+            "type": "string",
+            "pattern": "^(sh\\.60[0-9]{4}|sz\\.(000|001|002|003|300|301)[0-9]{3})$"
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 100,
+            "maximum": 1000000,
+            "multipleOf": 100
+          },
+          "threshold": {
+            "type": "string",
+            "pattern": "^[0-9]{1,9}(\\.[0-9]{1,2})?$"
+          },
+          "limit_price": {
+            "type": "string",
+            "pattern": "^[0-9]{1,9}(\\.[0-9]{1,2})?$"
+          },
+          "max_cash": {
+            "type": "string",
+            "pattern": "^[0-9]{1,9}(\\.[0-9]{1,2})?$"
+          }
+        }
+      },
+      "PaperStrategyVersion": {
+        "type": "object",
+        "required": [
+          "id",
+          "config",
+          "config_sha256",
+          "created_at",
+          "created_by",
+          "status",
+          "execution_allowed",
+          "approved_at",
+          "approved_by",
+          "revoked_at",
+          "revoked_by"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{32}$"
+          },
+          "config": {
+            "$ref": "#/components/schemas/PaperStrategyConfig"
+          },
+          "config_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_by": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "approved",
+              "revoked"
+            ]
+          },
+          "execution_allowed": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          },
+          "approved_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "approved_by": {
+            "type": "integer",
+            "nullable": true
+          },
+          "revoked_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "revoked_by": {
+            "type": "integer",
+            "nullable": true
           }
         }
       }
@@ -1166,6 +1284,220 @@
             }
           }
         ]
+      }
+    },
+    "/strategy-versions": {
+      "get": {
+        "summary": "List immutable strategy versions and human decisions for the caller’s paper account",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Read-only or approval record with no execution capability",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "enum": [
+                        1
+                      ]
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "versions": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/PaperStrategyVersion"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request, unsupported configuration, or invalid transition"
+          },
+          "401": {
+            "description": "Human authentication required"
+          },
+          "503": {
+            "description": "Database unavailable"
+          }
+        }
+      },
+      "post": {
+        "summary": "Save an immutable deterministic paper strategy draft",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "request_key",
+                  "config"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "request_key": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{8,100}$"
+                  },
+                  "config": {
+                    "$ref": "#/components/schemas/PaperStrategyConfig"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Read-only or approval record with no execution capability",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "enum": [
+                        1
+                      ]
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/PaperStrategyVersion"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request, unsupported configuration, or invalid transition"
+          },
+          "401": {
+            "description": "Human authentication required"
+          },
+          "503": {
+            "description": "Database unavailable"
+          },
+          "403": {
+            "description": "Paper write permission required"
+          }
+        }
+      }
+    },
+    "/strategy-versions/{version_id}/decision": {
+      "post": {
+        "summary": "Explicitly approve or revoke the exact version hash",
+        "parameters": [
+          {
+            "name": "version_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "config_sha256",
+                  "decision",
+                  "confirmed"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "config_sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "decision": {
+                    "type": "string",
+                    "enum": [
+                      "approved",
+                      "revoked"
+                    ]
+                  },
+                  "confirmed": {
+                    "type": "boolean",
+                    "enum": [
+                      true
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Read-only or approval record with no execution capability",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "integer",
+                      "enum": [
+                        1
+                      ]
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/PaperStrategyVersion"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request, unsupported configuration, or invalid transition"
+          },
+          "401": {
+            "description": "Human authentication required"
+          },
+          "503": {
+            "description": "Database unavailable"
+          },
+          "403": {
+            "description": "Paper write permission required"
+          }
+        }
       }
     }
   }

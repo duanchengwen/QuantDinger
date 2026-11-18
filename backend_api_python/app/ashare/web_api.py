@@ -12,6 +12,7 @@ from app.ashare.market import validate_quote
 from app.ashare.runtime import SHANGHAI, reviewed_rules
 from app.ashare.web_store import WebStore
 from app.ashare.schema import get_database_url
+from app.ashare.strategy_versions import StrategyVersions
 
 blueprint = Blueprint("ashare_paper", __name__, url_prefix="/api/ashare-paper")
 
@@ -111,13 +112,13 @@ def _research_endpoint(write=False):
     return decorate
 
 
-def _research_limit(default, maximum):
+def _bounded_limit(default, maximum, error="invalid_research_limit"):
     query_fields({'limit'})
     if any(len(request.args.getlist(key)) != 1 for key in request.args):
         raise ValueError('duplicate_query_fields')
     value = request.args.get('limit', str(default))
     if not value.isascii() or not value.isdecimal() or len(value) > 3 or not 1 <= int(value) <= maximum:
-        raise ValueError('invalid_research_limit')
+        raise ValueError(error)
     return int(value)
 
 
@@ -140,7 +141,7 @@ def _research_operation(store, operation, *, write=False):
 @_research_endpoint()
 def research_news(store):
     from app.ashare.news import NewsStore
-    limit = _research_limit(20, 50)
+    limit = _bounded_limit(20, 50)
     def read_news():
         preferences = store.settings().get('research_preferences', {})
         topics = [topic for topic in preferences.get('topics', []) if topic in ('ai', 'robotics', 'new_energy')]
@@ -163,7 +164,7 @@ def research_status(store):
 @_research_endpoint()
 def research_runs(store):
     from app.ashare.research import ResearchStore
-    limit = _research_limit(10, 20)
+    limit = _bounded_limit(10, 20)
     return _research_operation(store, lambda: ResearchStore(store.connection, *store.key).list_runs(limit=limit))
 
 
@@ -318,6 +319,30 @@ def review_batch(store):
     snapshot = store.state()
     validated = [validated_review(store, rule, now, g.user_id, snapshot) for rule in rules]
     return store.review_many(validated)
+
+
+@blueprint.get("/strategy-versions")
+@endpoint()
+def strategy_versions(store):
+    limit = _bounded_limit(20, 50, "invalid_strategy_limit")
+    store.connection.set_session(readonly=True, isolation_level='REPEATABLE READ')
+    return StrategyVersions(store.connection, *store.key).list(limit)
+
+
+@blueprint.post("/strategy-versions")
+@endpoint(write=True)
+def create_strategy_version(store):
+    data = body({"config", "request_key"})
+    return StrategyVersions(store.connection, *store.key).create(
+        data.get("config"), data.get("request_key"), g.user_id)
+
+
+@blueprint.post("/strategy-versions/<version_id>/decision")
+@endpoint(write=True)
+def decide_strategy_version(store, version_id):
+    data = body({"config_sha256", "decision", "confirmed"})
+    return StrategyVersions(store.connection, *store.key).decide(
+        version_id, data.get("config_sha256"), data.get("decision"), data.get("confirmed"), g.user_id)
 
 
 @blueprint.post("/orders")

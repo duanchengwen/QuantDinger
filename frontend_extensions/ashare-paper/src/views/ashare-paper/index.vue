@@ -214,6 +214,12 @@
             </section>
           </div>
         </a-tab-pane>
+        <a-tab-pane key="strategy-versions" :tab="t('strategyVersions')">
+          <strategy-versions
+            :active="activeTab === 'strategy-versions'"
+            :can-write="!readOnly && Boolean(state.account)"
+            :symbols="symbols" />
+        </a-tab-pane>
         <a-tab-pane key="settings" :tab="t('settings')">
           <h3>{{ t('researchPreferences') }}</h3>
           <p class="paper-muted">{{ t('researchPreferencesHelp') }}</p>
@@ -276,6 +282,7 @@ import { createResearchState, createResearchBrowser, researchCanGenerate, safeNe
 
 const emptyState = () => ({ account: null, quotes: [], orders: [], positions: [], fills: [], rules: {}, settings: {}, worker: {}, notifications: {} })
 export default {
+  components: { StrategyVersions: () => import('./strategy-versions.vue') },
   name: 'AsharePaper',
   data () {
     return {
