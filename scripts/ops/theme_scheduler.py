@@ -182,6 +182,15 @@ def load_journal(state):
             raise ValueError("theme_journal_attempt_invalid") from None
         if parsed.isoformat() != attempt["window_date"] or started.utcoffset() is None:
             raise ValueError("theme_journal_attempt_invalid")
+    if "active_container" in journal:
+        active = journal["active_container"]
+        if (not isinstance(active, dict) or set(active) != {"name", "board_code", "window_date"}
+                or not isinstance(active["name"], str)
+                or not re.fullmatch("quantdinger-theme-" + journal["scheduler_id"] + r"-[a-f0-9]{32}", active["name"])
+                or not isinstance(active["board_code"], str)
+                or active["board_code"] not in attempts
+                or active["window_date"] != attempts[active["board_code"]]["window_date"]):
+            raise ValueError("theme_journal_active_container_invalid")
     if journal.get("status") not in {"initialized", "running", "completed", "partial", "failed", "skipped_before_window"}:
         raise ValueError("theme_journal_status_invalid")
     return journal
@@ -252,8 +261,7 @@ def cleanup_container(container):
         return False
 
 
-def run_board(state, board, name, allow_ingest, day, deadline):
-    container = "quantdinger-theme-" + uuid.uuid4().hex
+def run_board(state, board, name, allow_ingest, day, deadline, container):
     command = ops.compose(state, "run", "--rm", "--no-deps", "-T", "--name", container,
                           "worker", "python", "-c", CONTAINER_SCRIPT)
     failure = {"board_code": board, "board_name": name, "status": "unknown", "error": "theme_job_unknown"}
@@ -280,12 +288,21 @@ def sync(state):
         journal = load_journal(state)
         now = utc_now()
         day, start = window(now)
+        if any(attempt["window_date"] > day for attempt in journal["attempts"].values()):
+            raise ValueError("theme_journal_future_window")
+        active = journal.get("active_container")
+        if active is not None:
+            if not cleanup_container(active["name"]):
+                journal.update(status="failed", completed_at=utc_now().isoformat())
+                atomic_state(state / STATE_NAME, journal)
+                print(json.dumps({"status": "failed", "error": "theme_job_cleanup_unknown", "approvals_created": 0}))
+                return 1
+            del journal["active_container"]
+            atomic_state(state / STATE_NAME, journal)
         if now < start:
             print(json.dumps({"status": "skipped_before_window", "window_date": day,
                               "config_version": CONFIG_VERSION, "approvals_created": 0}))
             return 0
-        if any(attempt["window_date"] > day for attempt in journal["attempts"].values()):
-            raise ValueError("theme_journal_future_window")
         deadline = time.monotonic() + TOTAL_TIMEOUT
         journal.update(status="running", window_date=day, current_window_start=start.isoformat(),
                        started_at=now.isoformat(), completed_at=None, boards=[])
@@ -301,10 +318,14 @@ def sync(state):
             allow_ingest = not prior or prior["window_date"] != day
             if allow_ingest:
                 journal["attempts"][board] = {"window_date": day, "status": "started", "started_at": current.isoformat()}
-                atomic_state(state / STATE_NAME, journal)
-            outcome = run_board(state, board, name, allow_ingest, day, deadline)
+            container = "quantdinger-theme-" + journal["scheduler_id"] + "-" + uuid.uuid4().hex
+            journal["active_container"] = {"name": container, "board_code": board, "window_date": day}
+            atomic_state(state / STATE_NAME, journal)
+            outcome = run_board(state, board, name, allow_ingest, day, deadline, container)
             journal["boards"].append(outcome)
             cleanup_uncertain = outcome.get("error") == "theme_job_cleanup_unknown"
+            if not cleanup_uncertain:
+                del journal["active_container"]
             attempt = journal["attempts"][board]
             if outcome["status"] != "skip_attempted":
                 attempt.update(status="observed" if outcome["status"] == "skip_already_observed" else

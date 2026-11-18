@@ -83,3 +83,9 @@ After installation, `quantdinger-themes-quantdinger-paper.timer` reported its ne
 **The first natural evening collection has not been accepted.** Service success means the pre-window skip worked; journal status remains `initialized` and monitoring retains `theme_sync_first_window_not_completed`. Four persistent services are healthy, existing evidence and backup checks pass, and the known BaoStock failure still keeps overall monitoring at attention. No additional claims were made for complete natural sessions, Windows, remote CI or actual Feishu delivery.
 
 Evidence is in the workspace parent's `work/quantdinger-theme-scheduler-acceptance/`: both JUnit reports, independent review/source hashes, 22-check installation proof, systemd logs and final monitoring. A restricted copy of the initial private scheduling journal was retained, but host reboot, SIGKILL and recovery after lost scheduling state were not exercised. Existing database/evidence-volume backups do not automatically include the host journal; recovery remains pending.
+
+## November 18 interruption rehearsal
+
+The scheduler now saves the exact container name with its attempt before launch. On restart it validates ownership and cleans up the recorded container before proceeding. Uncertain cleanup pauses the run and a previously attempted board remains eligible for archive checks only.
+
+The rehearsal sent SIGKILL to an isolated host scheduler process and confirmed its network-disabled Docker container survived. Restart cleaned up the exact container and limited the original board to verification. A missing journal failed closed. Real provider requests totaled zero, and the live journal hashes matched. Python 3.11 and 3.12 each passed 150 operations tests. Local proof is `theme-scheduler-kill-rehearsal-20261118.json`. The first natural evening capture and full host disaster recovery remain pending.

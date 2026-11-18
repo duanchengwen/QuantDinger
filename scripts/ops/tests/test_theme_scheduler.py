@@ -116,8 +116,10 @@ def test_dangling_marker_cannot_be_reinitialized(tmp_path):
 
 def test_partial_failures_continue_and_persist_attempt_before_subprocess(state):
     calls = []
-    def fake(state, board, name, allowed, day, deadline):
-        recorded = scheduler.load_journal(state)['attempts'][board]
+    def fake(state, board, name, allowed, day, deadline, container):
+        journal = scheduler.load_journal(state)
+        assert journal['active_container'] == {'name': container, 'board_code': board, 'window_date': day}
+        recorded = journal['attempts'][board]
         assert recorded['status'] == 'started' and recorded['window_date'] == '2026-11-18'
         assert allowed is True
         calls.append(board)
@@ -132,11 +134,11 @@ def test_partial_failures_continue_and_persist_attempt_before_subprocess(state):
 
 
 def test_same_window_failure_or_unknown_never_retries_ingest(state):
-    def fail(state, board, name, allowed, day, deadline):
+    def fail(state, board, name, allowed, day, deadline, container):
         return outcome(board, name, 'unknown', error='theme_job_timeout')
     with patch.object(scheduler, 'utc_now', return_value=EVENING), patch.object(scheduler, 'run_board', side_effect=fail):
         assert scheduler.sync(state) == 1
-    def readonly(state, board, name, allowed, day, deadline):
+    def readonly(state, board, name, allowed, day, deadline, container):
         assert allowed is False
         return outcome(board, name, 'skip_attempted', error='window_attempt_already_recorded')
     with patch.object(scheduler, 'utc_now', return_value=EVENING), patch.object(scheduler, 'run_board', side_effect=readonly):
@@ -148,7 +150,7 @@ def test_next_evening_is_new_observation_not_historical_backfill(state):
     with patch.object(scheduler, 'utc_now', return_value=EVENING), patch.object(scheduler, 'run_board', side_effect=lambda st, b, n, *args: outcome(b, n, 'failed', error='theme_ingest_failed')):
         assert scheduler.sync(state) == 1
     tomorrow = datetime(2026, 11, 19, 12, 20, tzinfo=UTC)
-    def observe(st, board, name, allowed, day, deadline):
+    def observe(st, board, name, allowed, day, deadline, container):
         assert allowed and day == '2026-11-19'
         return outcome(board, name)
     with patch.object(scheduler, 'utc_now', return_value=tomorrow), patch.object(scheduler, 'run_board', side_effect=observe):
@@ -220,7 +222,8 @@ def test_cli_has_no_backdate_or_scope_override(state):
 def test_timeout_bounded_and_only_own_container_removed(state):
     with patch.object(scheduler.ops, 'compose', side_effect=lambda state, *args: list(args)), patch.object(scheduler.subprocess, 'run') as run:
         run.side_effect = [subprocess.TimeoutExpired('fixture', 45), SimpleNamespace(returncode=0)]
-        result = scheduler.run_board(state, 'BK0800', '人工智能', True, '2026-11-18', scheduler.time.monotonic() + 240)
+        result = scheduler.run_board(state, 'BK0800', '人工智能', True, '2026-11-18',
+                                     scheduler.time.monotonic() + 240, 'quantdinger-theme-fixture')
     command = run.call_args_list[0].args[0]
     container = command[command.index('--name') + 1]
     assert result['status'] == 'unknown' and result['error'] == 'theme_job_timeout'
@@ -235,6 +238,61 @@ def test_cleanup_failure_halts_remaining_fetches(state):
         assert scheduler.sync(state) == 1
     job.assert_called_once()
     assert len(scheduler.load_journal(state)['boards']) == 3
+    assert scheduler.load_journal(state)['active_container']['board_code'] == 'BK0800'
+
+
+def interrupted_board(state):
+    journal = scheduler.load_journal(state)
+    day, started = scheduler.window(EVENING)
+    container = 'quantdinger-theme-' + journal['scheduler_id'] + '-' + '4' * 32
+    journal['attempts']['BK0800'] = {'window_date': day, 'started_at': started.isoformat(), 'status': 'started'}
+    journal['active_container'] = {'name': container, 'board_code': 'BK0800', 'window_date': day}
+    scheduler.atomic_state(state / scheduler.STATE_NAME, journal)
+    return container
+
+
+def test_interrupted_container_cleanup_is_fenced_before_same_window_verification(state):
+    original = interrupted_board(state)
+    events = []
+
+    def remove(name):
+        events.append(('cleanup', name))
+        return True
+
+    def visit(state, board, name, allowed, day, deadline, container):
+        assert scheduler.load_journal(state)['active_container']['name'] == container
+        events.append((board, allowed))
+        if allowed:
+            return outcome(board, name)
+        return outcome(board, name, 'skip_attempted', error='window_attempt_already_recorded')
+
+    with patch.object(scheduler, 'utc_now', return_value=EVENING), \
+            patch.object(scheduler, 'cleanup_container', side_effect=remove), \
+            patch.object(scheduler, 'run_board', side_effect=visit):
+        assert scheduler.sync(state) == 1
+    assert events == [('cleanup', original), ('BK0800', False), ('BK1090', True), ('BK0493', True)]
+    assert 'active_container' not in scheduler.load_journal(state)
+
+
+def test_uncertain_recovered_container_blocks_new_work_and_preserves_handle(state):
+    original = interrupted_board(state)
+    with patch.object(scheduler, 'utc_now', return_value=EVENING), \
+            patch.object(scheduler, 'cleanup_container', return_value=False) as remove, \
+            patch.object(scheduler, 'run_board') as visit:
+        assert scheduler.sync(state) == 1
+    remove.assert_called_once_with(original)
+    visit.assert_not_called()
+    assert scheduler.load_journal(state)['active_container']['name'] == original
+
+
+def test_foreign_container_name_cannot_be_removed_from_journal(state):
+    interrupted_board(state)
+    journal = scheduler.load_journal(state)
+    journal['active_container']['name'] = 'quantdinger-theme-' + '0' * 32 + '-' + '4' * 32
+    scheduler.atomic_state(state / scheduler.STATE_NAME, journal)
+    with patch.object(scheduler, 'cleanup_container') as remove, pytest.raises(ValueError, match='active_container_invalid'):
+        scheduler.sync(state)
+    remove.assert_not_called()
 
 
 def test_cleanup_return_one_requires_positive_absence_check():

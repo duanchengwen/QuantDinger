@@ -56,4 +56,6 @@ A verified receipt from the same evening is not collected again; an early-mornin
 
 `theme-sync-state.json` and its initialization marker reside in the private host deployment directory. Only installation initializes them; missing or corrupt run state blocks collection. Do not delete state to retry. Preserve and restore this state during migration/recovery rather than assuming an uncertain request is safe to repeat. Existing database/evidence-volume backups cover theme data but do not automatically include this host scheduling journal; scheduler disaster recovery is not claimed as accepted.
 
+Before launch, the scheduler records the exact container name alongside the attempt. After an interruption, it checks ownership and cleans that container before resuming. Uncertain cleanup pauses the run. The earlier attempt remains in the journal, so that board is eligible for archive verification only in the same window. Full host reboot and disaster recovery still require independent verification.
+
 Monitoring distinguishes systemd failure, partial failure, unreadable state, the first window not yet completed, and completion. Valid old archives do not hide a new collection failure. Installation and pre-window skip tests do not prove the first real nightly collection succeeded.
