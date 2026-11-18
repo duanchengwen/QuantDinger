@@ -317,6 +317,7 @@ def test_managed_execution_one_order_across_restart_and_revocation_releases_unfi
 
     conn, _, path = account
     store, draft, decide, rules, worker_factory = strategy_fixture(account, quantity=200, cap='2100')
+    versions = StrategyVersions(conn, *store.key)
     current = instant()
     tick = current
     worker = worker_factory(lambda *_, **__: [{**quote(tick), 'ask_size': 100}])
@@ -330,6 +331,7 @@ def test_managed_execution_one_order_across_restart_and_revocation_releases_unfi
 
     activated = decide('activated')
     assert activated['execution_allowed'] is True and activated['activated_at'] == instant(second=7)
+    assert activated['order'] is None
     assert decide('activated') == activated
     current = instant(second=12)
     # The latest source tick predates activation and must not trigger a new order.
@@ -339,6 +341,10 @@ def test_managed_execution_one_order_across_restart_and_revocation_releases_unfi
     assert len(fired['strategy_submitted']) == 1
     order_id = fired['strategy_submitted'][0]
     assert fired['fills'] == []
+    placed = versions.list(20)['versions'][0]['order']
+    assert placed == {'id': str(order_id), 'status': 'open', 'filled': 0, 'quantity': 200,
+                      'submitted_at': current.isoformat(), 'filled_amount': '0.00', 'fees': '0.00',
+                      'reserved_cash': '2005.02'}
     state = store.state()
     assert float(state['account']['reserved_cash']) == 2005.02
     audit = next(row['details'] for row in state['audit'] if row['event'] == 'approved_strategy_order_placed')
@@ -355,7 +361,12 @@ def test_managed_execution_one_order_across_restart_and_revocation_releases_unfi
         restarted = ManagedWorker(replacement, path, fetcher=worker.fetcher, notifications_enabled=False)
         fills = restarted.process_account(store.tenant_id, now=current)
         assert fills['strategy_submitted'] == [] and fills['fills'][0]['quantity'] == 100
-    assert decide('revoked')['execution_allowed'] is False
+    partial = versions.list(20)['versions'][0]['order']
+    assert partial == {**placed, 'status': 'partial', 'filled': 100, 'filled_amount': '1000.00',
+                       'fees': '5.01', 'reserved_cash': '1000.01'}
+    revoked = decide('revoked')
+    assert revoked['execution_allowed'] is False
+    assert revoked['order'] == {**partial, 'status': 'cancelled', 'reserved_cash': '0.00'}
     state = store.state()
     assert state['orders'][0]['id'] == order_id and state['orders'][0]['status'] == 'cancelled'
     assert state['orders'][0]['filled'] == 100 and state['account']['reserved_cash'] == 0
@@ -363,6 +374,37 @@ def test_managed_execution_one_order_across_restart_and_revocation_releases_unfi
     later = worker.process_account(store.tenant_id, now=current)
     assert later['strategy_submitted'] == later['fills'] == []
     assert len(store.state()['orders']) == len(store.state()['fills']) == 1
+
+
+def test_strategy_order_view_uses_exact_ledger_key_and_retains_expired_order(account):
+    from decimal import Decimal
+    from app.ashare.broker import STRATEGY_ORDER_PREFIX
+
+    store, draft, decide, rules, worker_factory = strategy_fixture(account)
+    versions = StrategyVersions(store.connection, *store.key)
+    other = StrategyVersions(store.connection, account[1].tenant_id, account[1].account_id)
+    store.broker.place_order('manual-same-symbol', draft['config']['symbol'], 'buy', 100,
+                             Decimal('9.50'), instant(), instant().date())
+    with store.connection, store.connection.cursor() as cursor:
+        cursor.execute("""INSERT INTO qd_ashare_orders
+            (tenant_id,account_id,client_order_id,symbol,side,quantity,limit_price,submitted_at,trading_day,status)
+            VALUES (%s,%s,%s,%s,'buy',100,10,%s,%s,'expired')""",
+                       (*other.key, STRATEGY_ORDER_PREFIX + draft['id'], draft['config']['symbol'],
+                        instant(), instant().date()))
+    rules()
+    decide('approved')
+    assert decide('activated')['order'] is None
+    assert versions.list(20)['versions'][0]['order'] is None
+    assert other.list(20) == {'versions': []}
+    now = instant(second=20)
+    worker = worker_factory(lambda *_, **__: [quote(now)])
+    submitted = worker.process_account(store.tenant_id, now=now)['strategy_submitted']
+    assert len(submitted) == 1
+    close = worker.process_account(store.tenant_id, now=instant(hour=7, second=1))
+    assert submitted[0] in close['expired_day_orders']
+    result = versions.list(20)['versions'][0]['order']
+    assert result['id'] == str(submitted[0]) and result['status'] == 'expired'
+    assert result['filled'] == 0 and result['reserved_cash'] == '0.00'
 
 
 def test_automatic_order_waits_if_human_review_changes_before_matching(account):

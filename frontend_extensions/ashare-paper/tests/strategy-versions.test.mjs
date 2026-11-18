@@ -113,3 +113,22 @@ test('funding preview survives a decision and stops warning after revocation', a
   assert.equal(state.capInsufficient, false)
   assert.deepEqual(state.selected.funding, funding)
 })
+
+test('refresh and revocation replace the persisted order status for the selected version', async () => {
+  const version = { id: 'a'.repeat(32), status: 'approved', execution_allowed: true, order: null }
+  const partial = { id: '90', status: 'partial', filled: 100, quantity: 200, fees: '5.01' }
+  const calls = []
+  const state = mount((path, method) => {
+    calls.push([path, method])
+    if (method === 'post') return { ...version, status: 'revoked', execution_allowed: false, order: { ...partial, status: 'cancelled' } }
+    return { versions: [{ ...version, order: partial }] }
+  })
+  state.versions = [version]
+  state.selectedId = version.id
+  await state.refresh()
+  assert.deepEqual(state.selected.order, partial)
+  assert.deepEqual(calls, [['/strategy-versions', undefined]])
+  await state.decide(state.selected, 'revoked')
+  assert.equal(state.selected.order.status, 'cancelled')
+  assert.equal(state.selected.order.fees, '5.01')
+})

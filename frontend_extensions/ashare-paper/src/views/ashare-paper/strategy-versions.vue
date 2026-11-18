@@ -72,6 +72,18 @@
         <template v-if="selected.activated_at">
           <dt>{{ t('strategyActivatedAt') }}</dt><dd>{{ formatTime(selected.activated_at) }}</dd>
         </template>
+        <template v-if="selected.activated_at && selected.order !== undefined">
+          <dt>{{ t('strategyOrderStatus') }}</dt>
+          <dd>{{ selected.order ? t('state.' + selected.order.status) : t('strategyOrderNotSubmitted') }}</dd>
+          <template v-if="selected.order">
+            <dt>{{ t('id') }}</dt><dd>{{ selected.order.id }}</dd>
+            <dt>{{ t('strategyOrderTime') }}</dt><dd>{{ formatTime(selected.order.submitted_at) }}</dd>
+            <dt>{{ t('filled') }}</dt><dd>{{ selected.order.filled }} / {{ selected.order.quantity }}</dd>
+            <dt>{{ t('strategyOrderAmount') }}</dt><dd>{{ selected.order.filled_amount }}</dd>
+            <dt>{{ t('strategyOrderFees') }}</dt><dd>{{ selected.order.fees }}</dd>
+            <dt>{{ t('reserved') }}</dt><dd>{{ selected.order.reserved_cash }}</dd>
+          </template>
+        </template>
       </dl>
       <a-alert v-if="capInsufficient" type="warning" show-icon :message="t('strategyCapInsufficient')" />
       <a-alert

@@ -19,11 +19,17 @@ VERSION_ID = re.compile(r'[a-f0-9]{32}')
 SHA256 = re.compile(r'[a-f0-9]{64}')
 REQUEST_KEY = re.compile(r'[A-Za-z0-9_-]{8,100}')
 MONEY = re.compile(r'[0-9]{1,9}(?:\.[0-9]{1,2})?')
-SELECT_VERSION = """
+SELECT_VERSION = f"""
     SELECT v.id, v.config, v.config_sha256, v.created_at, v.created_by,
            a.decided_at AS approved_at, a.actor_user_id AS approved_by,
            r.decided_at AS revoked_at, r.actor_user_id AS revoked_by,
-           x.activated_at, x.actor_user_id AS activated_by
+           x.activated_at, x.actor_user_id AS activated_by,
+           CASE WHEN o.id IS NOT NULL THEN jsonb_build_object(
+               'id', o.id::text, 'status', o.status, 'submitted_at', o.submitted_at,
+               'filled', o.filled, 'quantity', o.quantity,
+               'filled_amount', o.notional::text, 'fees', (o.commission + o.transfer_fee + o.sell_tax)::text,
+               'reserved_cash', o.reserved_cash::text
+           ) END AS "order"
       FROM qd_ashare_strategy_versions v
       LEFT JOIN qd_ashare_strategy_decisions a
         ON (a.tenant_id, a.account_id, a.version_id) = (v.tenant_id, v.account_id, v.id)
@@ -34,6 +40,9 @@ SELECT_VERSION = """
       LEFT JOIN qd_ashare_strategy_activations x
         ON (x.tenant_id, x.account_id, x.version_id, x.config_sha256)
          = (v.tenant_id, v.account_id, v.id, v.config_sha256)
+      LEFT JOIN qd_ashare_orders o
+        ON x.activated_at IS NOT NULL AND (o.tenant_id, o.account_id, o.client_order_id)
+         = (v.tenant_id, v.account_id, '{STRATEGY_ORDER_PREFIX}' || v.id)
      WHERE v.tenant_id = %s AND v.account_id = %s
 """
 
