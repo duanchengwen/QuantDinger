@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_on": "2026-11-18",
+  "updated_on": "2026-11-19",
   "workflow_policy": {
     "execution": "paper_only",
     "new_strategy_activation": "explicit_human_approval",
@@ -70,13 +70,13 @@
     },
     {
       "id": "scheduled_strategy_draft_review",
-      "status": "implemented_pending_deployment",
-      "acceptance": "Isolated end-to-end scheduled job with PostgreSQL and simulated model/Feishu verified one draft per scheduled research, exact review card and recovery without duplicate send. Requires a private user-scoped template, deployment, and observed first real candidate/card."
+      "status": "deployed_pending_natural_run",
+      "acceptance": "Cloud release 554ff58 exposes an authenticated account-level template, and scoped scheduler integration. An isolated PostgreSQL end-to-end test verifies template save, exact draft, a single simulated review notice, human approval and separate enablement, one controlled paper order and fill. The real template, first natural draft, Feishu display and actual paper order are pending."
     },
     {
       "id": "strategy_execution_evaluation",
-      "status": "implemented_pending_deployment",
-      "acceptance": "Read-only authenticated exact-version API and workspace view reconcile simulated orders, fills and fees. Human review suggestion requires linked post-submission wall-clock evidence. No PnL when necessary evidence is missing. Production deployment, daily digest integration, and natural result remain open."
+      "status": "deployed_pending_natural_order",
+      "acceptance": "Read-only authenticated exact-version API and workspace view reconcile simulated orders, fills and fees. Human review suggestion requires linked post-submission wall-clock evidence. No PnL when necessary evidence is missing. Production deployment, daily digest integration, and natural result remain open. Included in cloud release 554ff58."
     },
     {
       "id": "strategy_optimization",
@@ -101,7 +101,7 @@
     {
       "id": "feishu_delivery",
       "status": "user_configured_unverified",
-      "acceptance": "Webhook is configured. The durable receipt release deployed locally on Nov18 at 16:12. Both existing reports retain their original content with no observed receipt. Future natural webhook acceptance and actual group display remain open. Cloud HTTPS and signed account configuration were verified on Nov18. No extra test or historical resend was triggered."
+      "acceptance": "Webhook is configured. The durable receipt release deployed locally on Nov18 at 16:12. Both existing reports retain their original content with no observed receipt. Future natural webhook acceptance and actual group display remain open. Cloud HTTPS and signed account configuration were verified on Nov18. No extra test or historical resend was triggered. Nov19 release shows local Asia/Shanghai event times in the concise review, operation and report messages."
     },
     {
       "id": "calendar_2027",
