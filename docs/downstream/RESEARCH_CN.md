@@ -61,7 +61,7 @@ python scripts/ops/research_jobs.py --state-dir "$STATE" templates \
   --output-dir "$REVIEWED_UNIT_DIRECTORY"
 ```
 
-六个文件分别定义：上海时间 07:00 至 22:30 每半小时一次资讯采集、每两分钟处理一次队列、明确账户每天 08:30 请求研究。每日请求使用账户内固定幂等键 `scheduled-YYYYMMDD`；08:30 前跳过，不查数据库也不调用模型。服务设置 `Restart=no`。审查账户、路径和日程后，才将文件复制到 `~/.config/systemd/user/`、执行 `systemctl --user daemon-reload` 并启用选择的 `.timer`。生成模板不代表授权安装或已经安装成功；研究日程不会审批策略或开启自动 PAPER 委托。
+六个文件分别定义：上海时间 07:00 至 22:30 每半小时一次资讯采集、每两分钟处理一次队列、明确账户每天 08:30 请求研究。每日请求使用账户内固定幂等键 `scheduled-YYYYMMDD`；08:30 前跳过，不查数据库也不调用模型。任务同时启动时，先采集公告，再创建研究请求，最后处理队列。研究相关任务最多等待共享运维锁 15 秒，取得锁后执行一次。服务设置 `Restart=no`。审查账户、路径和日程后，才将文件复制到 `~/.config/systemd/user/`、执行 `systemctl --user daemon-reload` 并启用选择的 `.timer`。生成模板不代表授权安装或已经安装成功；研究日程不会审批策略或开启自动 PAPER 委托。
 
 已有后端运行环境也可使用有限模块命令：
 

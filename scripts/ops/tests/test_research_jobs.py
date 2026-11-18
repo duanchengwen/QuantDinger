@@ -5,7 +5,7 @@ import json
 import signal
 import subprocess
 import sys
-from contextlib import redirect_stdout
+from contextlib import ExitStack, redirect_stdout
 from datetime import datetime
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -62,9 +62,25 @@ def test_sigterm_still_cleans_container(state):
 
 
 def test_existing_operation_lock_prevents_overlapping_jobs(state):
-    with jobs.ops.operation_lock(state), patch.object(jobs.subprocess, 'run') as run, pytest.raises(RuntimeError):
+    with jobs.ops.operation_lock(state), patch.object(jobs, 'LOCK_WAIT_SECONDS', 0), \
+            patch.object(jobs.subprocess, 'run') as run, pytest.raises(RuntimeError):
         jobs.run_job(state, 'news')
     run.assert_not_called()
+
+
+def test_daily_request_waits_for_short_lock_collision_before_enqueuing_once(state, capsys):
+    response = SimpleNamespace(stdout=json.dumps({
+        'job': 'request', 'status': 'queued', 'id': 'a' * 32, 'execution_allowed': False,
+    }), returncode=0)
+    with ExitStack() as active_job:
+        active_job.enter_context(jobs.ops.operation_lock(state))
+        with patch.object(jobs.ops.time, 'sleep', side_effect=lambda _: active_job.close()) as wait, \
+                patch.object(jobs.subprocess, 'run', return_value=response) as run, \
+                patch.object(jobs, 'cleanup_container', return_value=True):
+            assert jobs.run_job(state, 'request', tenant_id='user:7', daily=True) == 0
+    wait.assert_called_once()
+    run.assert_called_once()
+    assert json.loads(capsys.readouterr().out)['status'] == 'queued'
 
 
 @pytest.mark.parametrize('payload', [
@@ -93,9 +109,12 @@ def test_templates_are_inert_explicit_account_and_bounded(state, tmp_path):
     news = (folder/'quantdinger-research-news-paper-test.timer').read_text()
     work = (folder/'quantdinger-research-work-paper-test.timer').read_text()
     request = (folder/'quantdinger-research-request-paper-test.service').read_text()
+    worker = (folder/'quantdinger-research-work-paper-test.service').read_text()
     assert '07..22:00/30:00 Asia/Shanghai' in news
     assert 'OnUnitActiveSec=2min' in work
     assert 'user:7' in request and '--daily' in request and '--account-id' in request
+    assert 'After=quantdinger-research-news-paper-test.service\n' in request
+    assert 'After=quantdinger-research-news-paper-test.service quantdinger-research-request-paper-test.service\n' in worker
     for path in folder.glob('*.service'):
         assert 'Restart=no' in path.read_text() and 'TimeoutStartSec=' in path.read_text()
         assert path.stat().st_mode & 0o777 == 0o600

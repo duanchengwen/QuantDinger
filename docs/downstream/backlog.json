@@ -51,7 +51,7 @@
     {
       "id": "scheduled_news_ingestion",
       "status": "accepted_limited_scope",
-      "acceptance": "CNinfo title-only three-topic bounded ingestion and immutable original JSON/PDF evidence accepted with 8 actual items, 2 declared oversized exclusions. 07:00–22:30 half-hour local timer installed; first natural collection pending. Full-text and broad timely industry news remain open. See NEWS_RESEARCH_ACCEPTANCE_CN.md."
+      "acceptance": "CNinfo title-only three-topic bounded ingestion and immutable original JSON/PDF evidence accepted with 8 actual items, 2 declared oversized exclusions. 07:00–22:30 half-hour local timer installed; First natural collection verified at 08:00 China time on Nov18 with 8 items and a matching raw archive hash. Full-text and broad timely industry news remain open. See NEWS_RESEARCH_ACCEPTANCE_CN.md."
     },
     {
       "id": "deepseek_research_agent",

@@ -21,6 +21,7 @@ import paper_stack as ops
 from theme_scheduler import atomic_state, cleanup_container
 
 TIMEOUTS = {'news': 90, 'work': 150, 'request': 30}
+LOCK_WAIT_SECONDS = 15
 MAX_OUTPUT_BYTES = 16384
 CLEANUP_MARKER = '.research-job-cleanup-unknown.json'
 STATUS_NAME = 'research-job-status.json'
@@ -204,7 +205,7 @@ def run_job(state, job, *, tenant_id=None, account_id='paper', idempotency_key=N
     if job not in TIMEOUTS:
         raise ValueError('invalid_job')
     payload = _request(tenant_id, account_id, idempotency_key, daily) if job == 'request' else {'job': job}
-    with ops.operation_lock(state):
+    with ops.operation_lock(state, wait_seconds=LOCK_WAIT_SECONDS):
         started_at = datetime.now(timezone.utc).isoformat()
         marker = state / CLEANUP_MARKER
         if marker.exists() or marker.is_symlink():
@@ -244,18 +245,21 @@ def templates(state, output_dir, tenant_id, account_id):
     schedules = {'news': 'OnCalendar=*-*-* 07..22:00/30:00 Asia/Shanghai\nPersistent=false',
                  'work': 'OnBootSec=2min\nOnUnitActiveSec=2min',
                  'request': 'OnCalendar=*-*-* 08:30:00 Asia/Shanghai\nPersistent=true'}
+    start_after = {'news': (), 'request': ('news',), 'work': ('news', 'request')}
     for job in TIMEOUTS:
         unit = 'quantdinger-research-' + job + '-' + project
         args = [sys.executable, Path(__file__).resolve(), '--state-dir', state, job]
         if job == 'request': args += ['--tenant-id', tenant_id, '--account-id', account_id, '--daily']
         command = ' '.join(ops.systemd_argument(value) for value in args)
+        dependencies = ' '.join(f'quantdinger-research-{name}-{project}.service' for name in start_after[job])
+        order = f'\nAfter={dependencies}' if dependencies else ''
         units[unit + '.service'] = f'''[Unit]
-Description=Bounded paper research {job} ({project})
+Description=Bounded paper research {job} ({project}){order}
 
 [Service]
 Type=oneshot
 UMask=0077
-TimeoutStartSec={TIMEOUTS[job] + 25}s
+TimeoutStartSec={TIMEOUTS[job] + LOCK_WAIT_SECONDS + 25}s
 TimeoutStopSec=20s
 Restart=no
 ExecStart={command}

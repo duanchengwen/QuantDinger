@@ -258,13 +258,19 @@ def restore(state, source, args):
 
 
 @contextmanager
-def operation_lock(state):
+def operation_lock(state, *, wait_seconds=0):
     with (state / '.backup.lock').open('a') as stream:
         os.chmod(state / '.backup.lock', 0o600)
-        try:
-            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as exc:
-            raise RuntimeError('Another deployment operation is already running') from exc
+        deadline = time.monotonic() + wait_seconds if wait_seconds > 0 else None
+        while True:
+            try:
+                fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError as exc:
+                remaining = deadline - time.monotonic() if deadline is not None else 0
+                if remaining <= 0:
+                    raise RuntimeError('Another deployment operation is already running') from exc
+                time.sleep(min(remaining, 0.25))
         try:
             yield
         finally:
