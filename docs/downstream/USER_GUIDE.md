@@ -61,7 +61,7 @@ The local A-share Paper page now has a **Strategy Versions** tab. Save a buy-onc
 
 ### Paper buy template
 
-Open **A-share Paper → Strategy Versions → Automatic buy proposal settings**. Use the current watchlist or select specific symbols from it. Save the trigger price, limit price, and per-order cash cap including fees, and opt in to draft generation. Each automatic draft uses one lot (100 shares). The trigger tests the latest trade price. The limit sets the maximum acceptable order price. The cap must cover one lot at the limit plus simulated fees.
+Open **A-share Paper** and click **Paper buy template** at the top to reach **Automatic buy proposal settings** in **Strategy Versions**. Use the current watchlist or select specific symbols from it. Save the trigger price, limit price, and per-order cash cap including fees, and opt in to draft generation. Each automatic draft uses one lot (100 shares). The trigger tests the latest trade price. The limit sets the maximum acceptable order price. The cap must cover one lot at the limit plus simulated fees.
 
 The scheduled worker uses only completed same-day research with verified scheduling provenance. Each candidate must be in the current watchlist and selected scope. It creates at most one immutable, evidence-linked draft per research run. Disabling the template stops new drafts. Existing drafts, decisions and orders remain managed through their versions. An explicitly configured legacy host template takes precedence over the page settings.
 

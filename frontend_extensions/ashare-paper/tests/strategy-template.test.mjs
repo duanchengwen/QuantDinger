@@ -159,3 +159,36 @@ test('the form validates decimal syntax and explains the server fee check', asyn
   assert.equal(state.saved, false)
   assert.equal(state.savedTemplate.max_cash, '1050.00')
 })
+
+test('paper buy shortcut scrolls to the template and an exact strategy link keeps priority', () => {
+  const page = readFileSync(new URL('../src/views/ashare-paper/index.vue', import.meta.url), 'utf8')
+  const pageScript = page.split('<script>')[1].split('</script>')[0]
+    .replace(/^import .*$/gm, '')
+    .replace('export default', 'return')
+  const component = new Function('researchCitations', pageScript)(() => [])
+  const calls = []
+  let ready = false
+  const context = {
+    activeTab: 'research',
+    $route: { query: { tab: 'strategy-versions' } },
+    $refs: { strategyTemplateSection: { querySelector: () => ready, scrollIntoView: options => calls.push(options) } },
+    $nextTick: callback => callback(),
+    syncResearchVisibility: () => calls.push('sync')
+  }
+  context.scrollToStrategyTemplate = component.methods.scrollToStrategyTemplate.bind(context)
+  Object.defineProperty(context, 'linkedStrategy', { get: component.computed.linkedStrategy.bind(context) })
+  assert.equal(component.computed.linkedTemplate.call(context), true)
+  component.methods.showStrategyTemplate.call(context)
+  assert.equal(context.activeTab, 'strategy-versions')
+  assert.deepEqual(calls, ['sync'])
+  ready = true
+  context.scrollToStrategyTemplate()
+  context.scrollToStrategyTemplate()
+  assert.deepEqual(calls, ['sync', { block: 'start' }])
+  context.$route.query.strategy_version = 'a'.repeat(32)
+  assert.equal(component.computed.linkedTemplate.call(context), false)
+  context.activeTab = 'orders'
+  component.watch.linkedStrategy.handler.call(context, context.linkedStrategy)
+  assert.equal(context.activeTab, 'strategy-versions')
+  assert.deepEqual(calls, ['sync', { block: 'start' }])
+})

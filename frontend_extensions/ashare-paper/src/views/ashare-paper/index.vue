@@ -2,7 +2,13 @@
   <main class="ashare-paper qd-workspace-page" :class="{ 'theme-dark': isDarkTheme }">
     <header class="paper-heading">
       <div><a-tag color="cyan">{{ t('paper') }}</a-tag><h1>{{ t('title') }}</h1><p>{{ t('subtitle') }}</p></div>
-      <div class="paper-health"><a-tag :color="workerFresh ? 'green' : 'orange'">{{ t('worker') }}: {{ workerLabel }}</a-tag><br><small>{{ t('updated') }} {{ formatTime(updatedAt) }}</small><a-button :loading="loading" @click="refresh">{{ t('refresh') }}</a-button><a-button @click="showFeishu">{{ t('feishu') }}</a-button></div>
+      <div class="paper-health">
+        <a-tag :color="workerFresh ? 'green' : 'orange'">{{ t('worker') }}: {{ workerLabel }}</a-tag><br>
+        <small>{{ t('updated') }} {{ formatTime(updatedAt) }}</small>
+        <a-button type="primary" @click="showStrategyTemplate">{{ t('strategyTemplateShortcut') }}</a-button>
+        <a-button :loading="loading" @click="refresh">{{ t('refresh') }}</a-button>
+        <a-button @click="showFeishu">{{ t('feishu') }}</a-button>
+      </div>
     </header>
     <a-alert v-if="error" type="error" show-icon :message="error" class="paper-alert" />
     <a-alert v-if="readOnly" type="info" :message="t('readOnly')" class="paper-alert" />
@@ -242,14 +248,17 @@
           </div>
         </a-tab-pane>
         <a-tab-pane key="strategy-versions" :tab="t('strategyVersions')">
-          <strategy-versions
-            :active="activeTab === 'strategy-versions'"
-            :account-ready="Boolean(state.account)"
-            :can-write="!readOnly && Boolean(state.account)"
-            :symbols="symbols"
-            :symbol-label="symbolLabel"
-            :preferred-id="linkedStrategy"
-            :research-seed="strategyResearchSeed" />
+          <div ref="strategyTemplateSection" class="paper-strategy-section">
+            <strategy-versions
+              :active="activeTab === 'strategy-versions'"
+              :account-ready="Boolean(state.account)"
+              :can-write="!readOnly && Boolean(state.account)"
+              :symbols="symbols"
+              :symbol-label="symbolLabel"
+              :preferred-id="linkedStrategy"
+              :research-seed="strategyResearchSeed"
+              @template-ready="scrollToStrategyTemplate" />
+          </div>
         </a-tab-pane>
         <a-tab-pane key="settings" :tab="t('settings')">
           <h3>{{ t('researchPreferences') }}</h3>
@@ -338,6 +347,7 @@ reviewChecked: false,
 review: { symbol: '', trading_day: '', evidence: '', limit_down: null, limit_up: null },
       bot: { webhook_url: '', signing_secret: '' },
       activeTab: 'orders',
+      templateScrollPending: false,
       strategyResearchSeed: null,
 reports: [],
 reportsLoading: false,
@@ -363,6 +373,7 @@ reportsError: '',
       const value = this.$route.query.strategy_version
       return typeof value === 'string' && /^[a-f0-9]{32}$/.test(value) ? value : ''
     },
+    linkedTemplate () { return !this.linkedStrategy && this.$route.query.tab === 'strategy-versions' },
     researchReady () { return researchCanGenerate(this.researchView) },
     savedResearchTopics () { return ((this.state.settings.research_preferences || {}).topics || []).map(topic => this.t('topic.' + topic)).join(' / ') },
     themeRows () { return themeMembers(this.themeView) },
@@ -405,11 +416,22 @@ reportsError: '',
   watch: {
     linkedStrategy: {
       immediate: true,
-      handler (value) { if (value) this.activeTab = 'strategy-versions' }
-    }
+      handler (value) {
+        if (value) {
+          this.templateScrollPending = false
+          this.activeTab = 'strategy-versions'
+        }
+      }
+    },
+    linkedTemplate (open) { if (open) this.showStrategyTemplate() }
   },
   created () { this.themeController = createThemeBrowser(this.themeView, paperRequest, error => this.themeErrorMessage(error)); this.researchController = createResearchBrowser(this.researchView, paperRequest, error => this.researchErrorMessage(error)) },
-  mounted () { document.addEventListener('visibilitychange', this.syncResearchVisibility); this.clock = setInterval(() => { this.now = Date.now() }, 1000); this.poll() },
+  mounted () {
+    document.addEventListener('visibilitychange', this.syncResearchVisibility)
+    this.clock = setInterval(() => { this.now = Date.now() }, 1000)
+    this.poll()
+    if (this.linkedTemplate) this.showStrategyTemplate()
+  },
   beforeDestroy () { document.removeEventListener('visibilitychange', this.syncResearchVisibility); this.researchController.dispose(); this.themeController.dispose(); this.stopped = true; clearTimeout(this.timer); clearInterval(this.clock) },
   methods: {
     citations: researchCitations,
@@ -432,7 +454,7 @@ reportsError: '',
     quoteFresh (quote) { return quoteIsFresh(quote, this.now) },
     today () { return shanghaiDate(this.now) },
     ruleReady (symbol) { return ruleIsReady((this.state.rules || {})[symbol], this.now) },
-    onTabChange (key) { this.researchController.setActive(key === 'research' && !document.hidden); if (key === 'reports') this.loadReports(); if (key === 'universe' && !this.universeResult) this.loadUniverse(); if (key === 'themes') this.themeController.ensureLoaded() },
+    onTabChange (key) { if (key !== 'strategy-versions') this.templateScrollPending = false; this.researchController.setActive(key === 'research' && !document.hidden); if (key === 'reports') this.loadReports(); if (key === 'universe' && !this.universeResult) this.loadUniverse(); if (key === 'themes') this.themeController.ensureLoaded() },
     syncResearchVisibility () { this.researchController.setActive(this.activeTab === 'research' && !document.hidden) },
     refreshResearch () { return this.researchController.refresh() },
     selectResearch (id) { return this.researchController.select(id) },
@@ -446,6 +468,20 @@ reportsError: '',
     refreshThemes () { return this.themeController.refresh() },
     selectTheme (board) { return this.themeController.select(board) },
     pageTheme (direction) { return this.themeController.page(direction) },
+    showStrategyTemplate () {
+      this.activeTab = 'strategy-versions'
+      this.templateScrollPending = true
+      this.syncResearchVisibility()
+      this.scrollToStrategyTemplate()
+    },
+    scrollToStrategyTemplate () {
+      this.$nextTick(() => {
+        const section = this.$refs.strategyTemplateSection
+        if (!this.templateScrollPending || this.activeTab !== 'strategy-versions' || !section || !section.querySelector('#strategy-template-heading')) return
+        this.templateScrollPending = false
+        section.scrollIntoView({ block: 'start' })
+      })
+    },
     showFeishu () { this.activeTab = 'feishu'; this.researchController.setActive(false); this.$nextTick(() => { const element = this.$refs.feishuSettings; if (element) element.scrollIntoView({ behavior: 'smooth', block: 'start' }) }) },
     symbolName (symbol) { const quote = (this.state.quotes || []).find(row => row.symbol === symbol); return quote && typeof quote.name === 'string' && quote.name.trim() ? quote.name.trim() : this.t('nameUnavailable') },
     symbolLabel (symbol) { return symbol + ' · ' + this.symbolName(symbol) },
@@ -487,6 +523,7 @@ reportsError: '',
 .paper-health { text-align: right; min-width: 180px; }
 .paper-health button { display: block; margin: 12px 0 0 auto; }
 .paper-health small { line-height: 2; color: var(--qd-text-secondary); }
+.paper-strategy-section { scroll-margin-top: 72px; }
 .paper-alert { margin: 0 0 16px; }
 .paper-section { margin-bottom: 20px; }
 .paper-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 20px; }

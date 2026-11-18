@@ -1,4 +1,5 @@
 const en = {
+  'ashare.strategyTemplateShortcut': 'Paper buy template',
   'ashare.strategyTemplateTitle': 'Automatic buy proposal settings',
   'ashare.strategyTemplateEnabled': 'Proposals enabled',
   'ashare.strategyTemplateDisabled': 'Proposals disabled',
@@ -256,6 +257,7 @@ const en = {
   'ashare.currency': 'CNY', 'ashare.received': 'Received', 'ashare.source': 'Source', 'ashare.action': 'Action'
 }
 const zh = {
+  'ashare.strategyTemplateShortcut': '模拟买入模板',
   'ashare.strategyTemplateTitle': '自动买入提案设置',
   'ashare.strategyTemplateEnabled': '提案已开启',
   'ashare.strategyTemplateDisabled': '提案已停用',
@@ -513,6 +515,7 @@ const zh = {
   'ashare.currency': '人民币', 'ashare.received': '接收时间', 'ashare.source': '来源', 'ashare.action': '操作'
 }
 const tw = {
+  'ashare.strategyTemplateShortcut': '模擬買入範本',
   'ashare.strategyTemplateTitle': '自動買入提案設定',
   'ashare.strategyTemplateEnabled': '提案已開啟',
   'ashare.strategyTemplateDisabled': '提案已停用',

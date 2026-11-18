@@ -5,7 +5,8 @@
       :account-ready="accountReady"
       :can-write="canWrite"
       :symbols="symbols"
-      :symbol-label="symbolLabel" />
+      :symbol-label="symbolLabel"
+      @hook:mounted="$emit('template-ready')" />
     <p>{{ t('strategyVersionHelp') }}</p>
     <a-alert v-if="error" type="error" :message="error" />
     <a-button :disabled="busy" :loading="loading" @click="refresh">{{ t('refresh') }}</a-button>
