@@ -43,12 +43,17 @@ def notify_strategy_card(version, url, *, webhook_url, signing_secret):
         f"含费上限：{config['max_cash']} 元",
         "登录后人工批准此版本，再单独启用自动模拟委托。",
     ]
+    return notify_paper_link("策略待审", lines, "查看待批策略", url, webhook_url=webhook_url,
+                             signing_secret=signing_secret)
+
+
+def notify_paper_link(title, lines, button, url, *, webhook_url, signing_secret):
     payload = {"msg_type": "interactive", "card": {
-        "header": {"title": {"tag": "plain_text", "content": "模拟交易 · 策略待审"}},
+        "header": {"title": {"tag": "plain_text", "content": f"模拟交易 · {title}"}},
         "elements": [
             {"tag": "div", "text": {"tag": "plain_text", "content": "\n".join(lines)}},
             {"tag": "action", "actions": [
-                {"tag": "button", "type": "primary", "text": {"tag": "plain_text", "content": "查看待批策略"},
+                {"tag": "button", "type": "primary", "text": {"tag": "plain_text", "content": button},
                  "url": url},
             ]},
         ],
@@ -56,15 +61,21 @@ def notify_strategy_card(version, url, *, webhook_url, signing_secret):
     return _send(payload, webhook_url, signing_secret)
 
 
+def review_origin():
+    base = os.environ.get("ASHARE_REVIEW_BASE_URL", "").strip().rstrip("/")
+    if base:
+        origin = urlsplit(base)
+        if (origin.scheme != "https" or not origin.hostname or origin.username is not None
+                or origin.path or origin.query or origin.fragment or origin.port == 0):
+            raise ValueError("invalid_strategy_review_origin")
+    return base
+
+
 def send_strategy_review_notice(store, versions, version):
     """Send only after the exact paper draft and its one-shot intent have committed."""
-    base = os.environ.get("ASHARE_REVIEW_BASE_URL", "").strip().rstrip("/")
+    base = review_origin()
     if not base:
         return "unconfigured"
-    origin = urlsplit(base)
-    if (origin.scheme != "https" or not origin.hostname or origin.username is not None
-            or origin.path or origin.query or origin.fragment or origin.port == 0):
-        raise ValueError("invalid_strategy_review_origin")
     credentials = store.notification_credentials()
     if not credentials["webhook_url"]:
         return "unconfigured"

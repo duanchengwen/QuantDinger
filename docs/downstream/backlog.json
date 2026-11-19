@@ -56,7 +56,7 @@
     {
       "id": "deepseek_research_agent",
       "status": "accepted_limited_scope",
-      "acceptance": "User-configured deepseek-flash completed real manual and scheduled title-based requests. The first Nov18 08:30 scheduled run completed with one evidence-scoped issuer candidate and 1833 provider tokens. Candidate citations show the exact saved announcement revision and any included excerpt. The Nov18 18:57 web-only rollout followed isolated browser checks with genuine title evidence and a controlled excerpt. The first naturally scheduled real result containing an excerpt remains open."
+      "acceptance": "User-configured deepseek-flash completed real manual and scheduled title-based requests. The first Nov18 08:30 scheduled run completed with one evidence-scoped issuer candidate and 1833 provider tokens. Candidate citations show the exact saved announcement revision and any included excerpt. The Nov18 18:57 web-only rollout followed isolated browser checks with genuine title evidence and a controlled excerpt. The first naturally scheduled real result containing an excerpt remains open. The Nov19 08:30 real run used an excerpt and reached DeepSeek. Strict prose checks rejected copied percentages and approval language. Both prompts clarified those restrictions; natural post-fix result remains pending."
     },
     {
       "id": "recommendations_and_approval",
@@ -71,7 +71,7 @@
     {
       "id": "scheduled_strategy_draft_review",
       "status": "deployed_pending_natural_run",
-      "acceptance": "Cloud release 554ff58 exposes an authenticated account-level template, and scoped scheduler integration. An isolated PostgreSQL end-to-end test verifies template save, exact draft, a single simulated review notice, human approval and separate enablement, one controlled paper order and fill. The real template, first natural draft, Feishu display and actual paper order are pending."
+      "acceptance": "Cloud release 554ff58 exposes an authenticated account-level template, and scoped scheduler integration. An isolated PostgreSQL end-to-end test verifies template save, exact draft, a single simulated review notice, human approval and separate enablement, one controlled paper order and fill. The real template, first natural draft, Feishu display and actual paper order are pending. The Nov19 08:30 task provided no validated result, and the production template was inactive. No draft or approval was recorded."
     },
     {
       "id": "strategy_execution_evaluation",
@@ -137,6 +137,11 @@
       "id": "scheduled_theme_collection",
       "status": "observed_partial",
       "acceptance": "The first natural Nov18 evening run verified two of three configured boards. The failed new-energy request was not repeated that evening. The network-disabled SIGKILL rehearsal verified exact container cleanup and one-attempt recovery. Full coverage and host disaster recovery remain open."
+    },
+    {
+      "id": "paper_action_reminders",
+      "status": "implemented_pending_live_action",
+      "acceptance": "One-shot scoped Feishu reminders for an approved version awaiting activation and qualifying intraday conditions awaiting human daily security review. Isolated database fixtures verified exact URLs, current evidence, receipt claiming and no retry after uncertain delivery. Genuine actions and Feishu group display remain pending."
     }
   ]
 }

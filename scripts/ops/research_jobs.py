@@ -53,6 +53,7 @@ PROPOSAL_DRAFT_STATUSES = {'draft_created', 'already_proposed'}
 PROPOSAL_SKIP_STATUSES = {'inactive_template', 'invalid_template', 'proposal_failed', 'no_verified_trading_day',
                           'no_completed_scheduled_run', 'no_eligible_template_match'}
 NOTICE_STATUSES = {'unconfigured', 'not_claimed', 'unknown', 'webhook_acknowledged', 'disabled', 'rejected', 'failed'}
+ACTION_KINDS = {'activate_approved_strategy', 'review_daily_security_rules'}
 
 CONTAINER_SCRIPT = (
     'SAFE_RESEARCH_ERRORS = frozenset(' + repr(sorted(SAFE_RESEARCH_ERRORS)) + ')\n'
@@ -134,6 +135,11 @@ try:
             if run:
                 result['id'] = run['id']
                 attach_run_error(result, run)
+            if scope is not None:
+                from app.ashare.action_reminders import send_due_reminder
+                action_reminder = send_due_reminder(connection, scope)
+                if action_reminder is not None:
+                    result['action_reminder'] = action_reminder
             if (scope is not None or 'proposal_template' in payload) and result['status'] in ('completed', 'idle'):
                 from app.ashare.strategy_proposals import propose_and_notify
                 try:
@@ -201,7 +207,7 @@ def load_job_status(state):
         for job, item in data['jobs'].items():
             allowed = {'job','status','started_at','updated_at','execution_allowed','id','receipt_id','item_count','source_hash','error'}
             if job == 'work':
-                allowed.add('proposal')
+                allowed.update(('proposal', 'action_reminder'))
             valid_statuses = STATUSES | ({'unknown', 'waiting_for_excerpt'} if job == 'work' else {'unknown'})
             if (job not in TIMEOUTS or not isinstance(item, dict) or set(item) - allowed
                     or item.get('job') != job or item.get('status') not in valid_statuses
@@ -217,6 +223,8 @@ def load_job_status(state):
                 raise ValueError()
             if 'proposal' in item:
                 _proposal_summary(item['proposal'], item['status'])
+            if 'action_reminder' in item:
+                _action_reminder_summary(item['action_reminder'])
         if any(not isinstance(stamp,str) or datetime.fromisoformat(stamp).utcoffset() is None for stamp in stamps):
             raise ValueError()
         return data
@@ -262,6 +270,17 @@ def _proposal_summary(proposal, research_status):
     return proposal
 
 
+def _action_reminder_summary(value):
+    if value == {'status': 'unavailable'}:
+        return value
+    if (not isinstance(value, dict) or set(value) != {'kind', 'version_id', 'notice'}
+            or not isinstance(value['kind'], str) or value['kind'] not in ACTION_KINDS
+            or not isinstance(value['version_id'], str) or not re.fullmatch('[a-f0-9]{32}', value['version_id'])
+            or not isinstance(value['notice'], str) or value['notice'] not in NOTICE_STATUSES - {'not_claimed'}):
+        raise ValueError('invalid_action_reminder_status')
+    return value
+
+
 def _safe_result(result, job):
     if len(result.stdout.encode('utf-8')) > MAX_OUTPUT_BYTES:
         raise ValueError('job_response_invalid')
@@ -288,6 +307,10 @@ def _safe_result(result, job):
         if job != 'work':
             raise ValueError('invalid_proposal_status')
         safe['proposal'] = _proposal_summary(value['proposal'], value['status'])
+    if 'action_reminder' in value:
+        if job != 'work':
+            raise ValueError('invalid_action_reminder_status')
+        safe['action_reminder'] = _action_reminder_summary(value['action_reminder'])
     return safe
 
 
@@ -399,7 +422,8 @@ def run_job(state, job, *, tenant_id=None, account_id='paper', idempotency_key=N
                 payload['proposal_template'] = _read_proposal_template(proposal_template)
             except (ValueError, OSError):
                 invalid_proposal_template = True
-                payload.pop('proposal_scope', None)
+                if 'proposal_scope' in payload:
+                    payload['proposal_template'] = ''
         metadata = json.loads((state / 'deployment.json').read_text())
         ops.check_project(metadata['project'])
         container = 'quantdinger-research-' + job + '-' + uuid.uuid4().hex

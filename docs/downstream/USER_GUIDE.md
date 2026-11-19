@@ -47,6 +47,8 @@ The custom bot sends one-way notices. When the administrator sets `ASHARE_REVIEW
 
 Newly generated daily ledgers trigger a summary of daily fill counts, buy/sell notional, fees, ending cash, positions and reconciliation, plus a clearly labelled watchlist. Without trustworthy closing valuations, equity, PnL and returns explicitly remain unavailable; cash is not presented as profit. The digest marks absent selection and strategy data and displays event times in Asia/Shanghai. Bounded messages identify truncation; full fill records and evidence remain in the page. Previously generated reports are not resent after configuring a bot, and uncertain transport delivery is not automatically retried.
 
+The worker sends one exact-version reminder if a human-approved strategy is still disabled after ten minutes. With a qualifying intraday quote, it also identifies a missing daily security and band review for an enabled, unsubmitted version. Each daily-review reminder gets at most one attempt per version and trading day.
+
 In **A-share Paper → Daily ledger**, check the **Feishu receipt** column. Webhook acknowledgement records provider acceptance. Check the Feishu group for actual display. Unknown outcomes remain in the ledger, and older reports show that no receipt was recorded.
 
 ## Remaining workflow

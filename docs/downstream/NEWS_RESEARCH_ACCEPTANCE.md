@@ -57,3 +57,12 @@ Candidate citations use the verified input snapshot for that run and match the e
 The frontend passed 45 tests, ESLint, and the production build. In an isolated browser, a genuine archived title-only research result displayed its correct revision and link. A controlled excerpt verified text and hash rendering. There were zero model calls. Evidence is `research-citation-browser-20261118.json`.
 
 Citation details went live at 18:57 China time. Only the web service was recreated. The API, database and paper worker continued running. Served asset hashes, the two existing research records and private model settings matched their expected values. The 18:30 scheduled archive also verified seven announcements and seven excerpts. Evidence is `research-citation-production-deployment-20261118.json` and `scheduled-excerpts-1830-20261118.json`.
+
+
+## November 19 natural 08:30 cloud research
+
+The request was queued at 08:30:12 Asia/Shanghai. The model ran from 08:32:56 through 08:33:05. The archived response identified `deepseek-flash` and 3,343 tokens. One archived announcement excerpt was provided. The preserved input and output hashes were verified for run `af0a1418f4b24266add1b899b3a111b5`.
+
+JSON structure, eligible symbol and evidence reference matched. The model echoed numeric percentages in its narrative and used approval wording in a risk note. The existing conservative gate rejected the result. The record remains `failed / model_output_invalid`, with zero accepted candidates, drafts or paper orders. Acceptance did not repeat the provider call or send a Feishu test.
+
+Both prompt variants are versioned to v2 and explicitly require qualitative, neutral research wording. The existing response gate stays intact. Two offline regression cases first reproduced the prompt omission, then verified aligned instructions, valid prose and continued rejection of the recorded output shape. The next real confirmation awaits normal scheduling.

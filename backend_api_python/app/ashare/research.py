@@ -40,7 +40,7 @@ REQUEST_TIMEOUT = 90
 LEASE_SECONDS = 180
 FRESH_DAYS = 7
 SCHEDULED_REQUEST_PREFIX = 'scheduled-'
-PROMPT_VERSION = 'issuer-title-research-v1'
+PROMPT_VERSION = 'issuer-title-research-v2'
 SYSTEM_PROMPT = '''You prepare Chinese A-share research notes, never trading signals or strategies.
 Return only a JSON object with exactly summary, risks, candidates. Example JSON:
 {"summary":"待进一步核实的发行人公告研究","risks":["仅有公告标题，未解读正文"],"candidates":[{"symbol":"sh.600000","rationale":"需要进一步阅读公告正文核实事项","evidence_news_ids":["provided-id"],"risks":["不能从标题推断受益或收益"]}]}
@@ -50,8 +50,11 @@ Select at most 10 symbols from allowed_candidates only; each evidence_news_id mu
 An announcement issuer is not proof of benefit. Titles are not article/PDF contents. Do not invent facts, prices, forecasts, valuation, profitability, investment advice or orders.
 Do not claim to have read PDF bodies. State uncertainty and title-only limitations, with at least one risk per candidate and overall.
 Include no URLs, code, strategy definitions, tool requests, buy/sell instructions, or new ticker symbols. An empty candidates list is valid.
+In summary, rationale and risks, use qualitative wording instead of currency amounts or percentages, even when quoting an announcement.
+Avoid these terms in those fields, including in quotations or negative statements: 买入、卖出、加仓、减仓、建仓、平仓、全仓、止盈、止损、批准、自动执行、策略升级、升级策略、buy、sell、execute、approve、promote.
+For unresolved issuer or regulatory procedures, write 相关手续仍待完成.
 Use the provided evidence to suggest questions requiring further human research only.'''
-EXCERPT_PROMPT_VERSION = 'issuer-bounded-excerpt-v1'
+EXCERPT_PROMPT_VERSION = 'issuer-bounded-excerpt-v2'
 EXCERPT_SYSTEM_PROMPT = SYSTEM_PROMPT.replace(
     'Titles are not article/PDF contents.', 'A supplied excerpt covers only the requested pages and may be truncated.',
 ).replace(

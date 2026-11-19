@@ -193,7 +193,7 @@ def test_proposal_template_is_private_and_sent_only_via_stdin(state, source):
         assert payload['proposal_scope'] == ['user_7', 'paper']
         assert 'proposal' not in summary
     else:
-        assert payload == {'job': 'work'}
+        assert payload == {'job': 'work', 'proposal_scope': ['user_7', 'paper'], 'proposal_template': ''}
         assert summary['proposal'] == {'status': 'invalid_template'}
 
 
@@ -343,7 +343,8 @@ def test_work_uses_title_fallback_after_derivation_deadline(state, capsys):
     assert json.loads(capsys.readouterr().out)['status'] == 'idle'
 
 
-def child(payload, hour=9, run_result=None, request_error=None, news_error=None, arbitrary_error=None):
+def child(payload, hour=9, run_result=None, request_error=None, news_error=None, arbitrary_error=None,
+          action_reminder=None):
     database = ModuleType('psycopg2'); database.connect = Mock(return_value=Mock())
     schema = ModuleType('app.ashare.schema'); schema.get_database_url = lambda:'private-test-dsn'
     research = ModuleType('app.ashare.research'); research.run_once = Mock(return_value=run_result)
@@ -371,8 +372,13 @@ def child(payload, hour=9, run_result=None, request_error=None, news_error=None,
         @classmethod
         def now(cls, tz=None): return datetime(2026,11,18,hour,0,tzinfo=ZoneInfo('Asia/Shanghai'))
     dt = ModuleType('datetime');dt.datetime = Clock
+    action = ModuleType('app.ashare.action_reminders')
+    action.send_due_reminder = action_reminder or Mock(return_value=None)
+    proposals = ModuleType('app.ashare.strategy_proposals')
+    proposals.propose_and_notify = Mock(return_value={'status': 'inactive_template'})
     stdout=io.StringIO()
     with patch.dict(sys.modules, {'psycopg2':database,'app.ashare.schema':schema,'app.ashare.research':research,
+                                  'app.ashare.action_reminders':action,'app.ashare.strategy_proposals':proposals,
                                   'app.ashare.research_excerpts':excerpts,'app.ashare.news':news,'datetime':dt}), \
          patch.object(sys,'stdin',io.StringIO(json.dumps(payload))),redirect_stdout(stdout),pytest.raises(SystemExit) as exited:
         exec(compile(jobs.CONTAINER_SCRIPT,'<research-job>','exec'),{})
@@ -391,6 +397,28 @@ def test_child_work_calls_one_finite_worker_without_enqueue():
     code,result,research,news,_=child({'job':'work'},run_result={'status':'completed','id':'a'*32})
     assert code == 0 and result['status'] == 'completed'
     research.run_once.assert_called_once();research.ResearchStore.assert_not_called();news.ingest_news.assert_not_called()
+
+
+@pytest.mark.parametrize('scoped', [True, False])
+def test_child_checks_user_action_only_for_explicitly_scoped_worker(scoped):
+    action = {'kind': 'review_daily_security_rules', 'version_id': 'b' * 32, 'notice': 'unknown'}
+    check = Mock(return_value=action)
+    payload = {'job': 'work', 'proposal_scope': ['user_7', 'paper']} if scoped else {'job': 'work'}
+    code, result, _, _, db = child(
+        payload, run_result={'status': 'no_evidence', 'id': 'a' * 32}, action_reminder=check,
+    )
+    assert code == 0 and result['status'] == 'no_evidence' and result['execution_allowed'] is False
+    if scoped:
+        check.assert_called_once_with(db.connect.return_value, ('user_7', 'paper'))
+        assert result['action_reminder'] == action
+        output = SimpleNamespace(stdout=json.dumps(result), returncode=0)
+        assert jobs._safe_result(output, 'work')['action_reminder'] == action
+        result['action_reminder']['notice'] = 'leaked-secret'
+        with pytest.raises(ValueError, match='invalid_action_reminder_status'):
+            jobs._safe_result(SimpleNamespace(stdout=json.dumps(result), returncode=0), 'work')
+    else:
+        check.assert_not_called()
+        assert 'action_reminder' not in result
 
 
 @pytest.mark.parametrize('valid', [True, False])

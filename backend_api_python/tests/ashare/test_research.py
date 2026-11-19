@@ -76,6 +76,27 @@ def test_input_restricts_verified_members_and_explicit_issuer():
     assert missing == 'no_news_evidence' and not value['allowed_candidates']
 
 
+@pytest.mark.parametrize('with_excerpt', [False, True])
+def test_research_input_explains_prose_restrictions_before_model_request(excerpt_evidence, with_excerpt):
+    path, artifact, item, observed = excerpt_evidence
+    receipt = _load_excerpt(path, artifact) if with_excerpt else None
+    request, missing = r.build_input({'topics': ['ai']}, NOW, Themes(), News([item], [observed]), excerpt_receipt=receipt)
+    assert missing is None
+    prompt = request['system_prompt']
+    assert 'currency amounts or percentages' in prompt
+    assert 'even when quoting an announcement' in prompt
+    assert '相关手续仍待完成' in prompt
+    assert '批准' in prompt
+
+    safe_output = output()
+    safe_output['candidates'][0]['evidence_news_ids'] = [item['id']]
+    assert r.validate_output(json.dumps(safe_output), request)['candidates'][0]['symbol'] == SYMBOL
+    with pytest.raises(r.ResearchError, match='model_output_invalid'):
+        r.validate_output(json.dumps({**safe_output, 'summary': '公告披露的比例为 12.5%'}), request)
+    with pytest.raises(r.ResearchError, match='model_output_invalid'):
+        r.validate_output(json.dumps({**safe_output, 'risks': ['仍待批准']}), request)
+
+
 @pytest.fixture
 def excerpt_evidence(tmp_path):
     item = {**article(), 'receipt_id': '1' * 32, 'article_id': '1'}
