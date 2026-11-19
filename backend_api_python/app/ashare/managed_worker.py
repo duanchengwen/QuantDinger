@@ -27,6 +27,7 @@ from app.ashare.operations import (
 from app.ashare.runtime import claim_worker, process_quotes, utc_now
 from app.ashare.schema import get_database_url
 from app.ashare.strategy_versions import StrategyVersions
+from app.ashare.trade_notifications import notify_new_fills
 from app.ashare.web_store import WebStore
 
 
@@ -140,8 +141,12 @@ class ManagedWorker:
 
         # Persist health before best-effort notification; it is never a trade command.
         store.observe(quotes, worker)
+        if not self.notifications_enabled:
+            return worker
         changed = worker["state"] != before["worker"].get("state")
-        if self.notifications_enabled and (worker["fills"] or changed or reports):
+        if worker["fills"]:
+            worker["trade_notifications"] = notify_new_fills(store, worker["fills"], observed, self.notifier)
+        if reports or (changed and not worker["fills"]):
             delivery = None
             try:
                 if reports:
@@ -154,7 +159,7 @@ class ManagedWorker:
                         record_daily_feishu_audit(self.connection, tenant_id, account_id, DAILY_FEISHU_ATTEMPT, attempt)
                         delivery = attempt
                 else:
-                    message = format_paper_event(account_id, worker["state"], len(worker["fills"]), worker["observed_at"])
+                    message = format_paper_event(account_id, worker["state"], 0, worker["observed_at"])
                 credentials = store.notification_credentials()
                 notification = self.notifier(
                     message,
@@ -169,6 +174,7 @@ class ManagedWorker:
                 record_daily_feishu_audit(self.connection, tenant_id, account_id, DAILY_FEISHU_RESULT,
                                          {**delivery, "status": daily_feishu_status(notification)})
             worker["notification"] = notification
+        if worker["fills"] or changed or reports:
             store.observe(quotes, worker)
         return worker
 

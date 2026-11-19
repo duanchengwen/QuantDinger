@@ -100,8 +100,8 @@
     },
     {
       "id": "feishu_delivery",
-      "status": "webhook_acknowledged_group_unverified",
-      "acceptance": "Webhook is configured. The durable receipt release deployed locally on Nov18 at 16:12. Both existing reports retain their original content with no observed receipt. Future natural webhook acceptance and actual group display remain open. Cloud HTTPS and signed account configuration were verified on Nov18. No extra test or historical resend was triggered. Nov19 release shows local Asia/Shanghai event times in the concise review, operation and report messages. On Nov19 at 09:04, the configured signed webhook acknowledged a genuine template setup reminder. Actual group display and a real fill receipt are pending. No receipts were found for the Nov17 fill or old daily reports."
+      "status": "group_confirmed_setup_notice",
+      "acceptance": "Webhook is configured. The durable receipt release deployed locally on Nov18 at 16:12. Both existing reports retain their original content with no observed receipt. Future natural webhook acceptance and actual group display remain open. Cloud HTTPS and signed account configuration were verified on Nov18. No extra test or historical resend was triggered. Nov19 release shows local Asia/Shanghai event times in the concise review, operation and report messages. On Nov19 at 09:04, the configured signed webhook acknowledged a genuine template setup reminder. Actual group display and a real fill receipt are pending. No receipts were found for the Nov17 fill or old daily reports. The user confirmed group display of the 09:04 setup reminder. Historical fill receipts remain absent."
     },
     {
       "id": "calendar_2027",
@@ -147,6 +147,11 @@
       "id": "backtested_automatic_paper_buy_sell",
       "status": "deployed_pending_natural_data_and_approval",
       "acceptance": "Exact-version automatic buy/sell draft uses a fixed 60-session historical replay with 40-session holdout, data hashes, fees and settled positions. Controlled PostgreSQL rehearsals cover both sides and explicit independent approval and enable. A single real BaoStock probe timed out. Natural data, a genuine approved order and actual delivery remain to be observed. Cloud release 0a555ea verified account, UI, migration and preserved ledger. No account template was saved at verification."
+    },
+    {
+      "id": "feishu_trade_details",
+      "status": "tested_pending_cloud_release",
+      "acceptance": "Forward-only per-fill ID Feishu notices carry exact Shanghai time, side, quantity, price, notional and fee. Intent/result are durable and uncertain outcomes do not retry. Old fills and reports were not resent. Isolated tests cover both sides and daily-report coexistence."
     }
   ]
 }

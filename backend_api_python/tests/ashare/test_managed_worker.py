@@ -10,6 +10,7 @@ import pytest
 from app.ashare.managed_worker import ManagedWorker
 from app.ashare.operations import DAILY_FEISHU_ATTEMPT, DAILY_FEISHU_RESULT, list_daily_reports
 from app.ashare.strategy_versions import StrategyVersions
+from app.ashare.trade_notifications import TRADE_FEISHU_ATTEMPT, TRADE_FEISHU_RESULT, notify_new_fills
 from app.ashare.web_store import WebStore
 
 
@@ -200,6 +201,117 @@ def test_worker_interruption_keeps_ambiguous_daily_delivery_without_replaying(ac
     assert attempts == ["interrupted"]
     receipt = list_daily_reports(connection, store.tenant_id)[0]["feishu_delivery"]
     assert receipt["status"] == "unknown" and "recorded_at" not in receipt
+
+
+def test_new_fill_and_backlogged_daily_report_get_separate_notices(account, monkeypatch):
+    connection, store, path = account
+    # The prior day is observed but its daily report is not generated until the next cycle.
+    first = ManagedWorker(connection, path, fetcher=lambda *a, **k: [quote(instant())], notifications_enabled=False)
+    assert first.process_account(store.tenant_id, now=instant())["daily_reports_created"] == []
+    now = instant(day=18, second=6)
+    store.broker.place_order("new-paper-fill", "sz.000001", "buy", 100, "10", instant(day=18), now.date())
+    approve(store, day=18)
+    monkeypatch.setenv("SECRET_KEY", "test-fixture-not-a-secret-with-enough-bytes")
+    webhook = "https://open.feishu.cn/open-apis/bot/v2/hook/owner-fixture"
+    store.configure_notifications(webhook, "fixture-secret")
+    sent = []
+
+    def notifier(text, **credentials):
+        assert credentials == {"webhook_url": webhook, "signing_secret": "fixture-secret"}
+        sent.append(text)
+        if "[模拟成交]" in text:
+            with connection, connection.cursor() as cursor:
+                cursor.execute("SELECT event FROM qd_ashare_audit WHERE event IN (%s,%s)", (TRADE_FEISHU_ATTEMPT, TRADE_FEISHU_RESULT))
+                assert cursor.fetchall() == [(TRADE_FEISHU_ATTEMPT,)]
+        return {"status": "sent"}
+
+    worker = ManagedWorker(connection, path, fetcher=lambda *a, **k: [quote(now)], notifier=notifier)
+    result = worker.process_account(store.tenant_id, now=now)
+    assert len(result["fills"]) == 1 and result["daily_reports_created"] == ["2026-11-17"]
+    assert len(sent) == 2
+    trade, daily = sent
+    assert "[模拟成交]" in trade and "[模拟交易日报]" in daily
+    assert "2026-11-18 10:00:06（北京时间） · 买入 sz.000001" in trade
+    assert "100 股 × 10.00 元 · 成交额 1000.00 元 · 费用 5.01 元" in trade
+    assert list_daily_reports(connection, store.tenant_id)[0]["feishu_delivery"]["status"] == "webhook_acknowledged"
+    with connection, connection.cursor() as cursor:
+        cursor.execute("SELECT event,details FROM qd_ashare_audit WHERE event IN (%s,%s) ORDER BY id",
+                       (TRADE_FEISHU_ATTEMPT, TRADE_FEISHU_RESULT))
+        (attempt_event, attempt), (result_event, receipt) = cursor.fetchall()
+    assert (attempt_event, result_event) == (TRADE_FEISHU_ATTEMPT, TRADE_FEISHU_RESULT)
+    assert attempt["fill_ids"] == [str(result["fills"][0]["id"])]
+    assert attempt["summary_sha256"] == sha256(trade.encode()).hexdigest()
+    assert receipt == {**attempt, "status": "webhook_acknowledged"}
+    assert result["trade_notifications"] == [receipt]
+
+
+@pytest.mark.parametrize("interrupted", [False, True])
+def test_committed_fill_notice_is_never_retried_after_unknown_delivery(account, monkeypatch, interrupted):
+    connection, store, path = account
+    monkeypatch.setenv("SECRET_KEY", "test-fixture-not-a-secret-with-enough-bytes")
+    store.configure_notifications("https://open.feishu.cn/open-apis/bot/v2/hook/owner-fixture")
+    approve(store)
+    now = instant(second=6)
+    store.broker.place_order("unknown-paper-fill", "sz.000001", "buy", 100, "10", instant(), now.date())
+    sent = []
+
+    def notifier(text, **_credentials):
+        sent.append(text)
+        if interrupted:
+            raise KeyboardInterrupt
+        return {"status": "failed", "error": "transport_error_delivery_unknown"}
+
+    worker = ManagedWorker(connection, path, fetcher=lambda *a, **k: [quote(now)], notifier=notifier)
+    if interrupted:
+        with pytest.raises(KeyboardInterrupt):
+            worker.process_account(store.tenant_id, now=now)
+        fills = store.state()["fills"]
+    else:
+        current = worker.process_account(store.tenant_id, now=now)
+        fills = current["fills"]
+        assert current["trade_notifications"][0]["status"] == "unknown"
+    assert len(fills) == 1 and len(sent) == 1
+    assert notify_new_fills(store, fills, now, notifier) == []
+    restarted = ManagedWorker(connection, path, fetcher=worker.fetcher, notifier=notifier)
+    assert restarted.process_account(store.tenant_id, now=instant(second=7))["fills"] == []
+    assert len(sent) == 1
+    with connection, connection.cursor() as cursor:
+        cursor.execute("SELECT event FROM qd_ashare_audit WHERE event IN (%s,%s) ORDER BY id",
+                       (TRADE_FEISHU_ATTEMPT, TRADE_FEISHU_RESULT))
+        expected = [(TRADE_FEISHU_ATTEMPT,)]
+        if not interrupted:
+            expected.append((TRADE_FEISHU_RESULT,))
+        assert cursor.fetchall() == expected
+
+
+def test_old_unnotified_fill_stays_archived_and_new_sell_reports_its_actual_fee(account, monkeypatch):
+    connection, store, path = account
+    approve(store)
+    buy_time = instant(second=6)
+    store.broker.place_order("historical-buy", "sz.000001", "buy", 100, "10", instant(), buy_time.date())
+    earlier = ManagedWorker(connection, path, fetcher=lambda *a, **k: [quote(buy_time)], notifications_enabled=False)
+    archived = earlier.process_account(store.tenant_id, now=buy_time)["fills"]
+    assert len(archived) == 1
+    monkeypatch.setenv("SECRET_KEY", "test-fixture-not-a-secret-with-enough-bytes")
+    store.configure_notifications("https://open.feishu.cn/open-apis/bot/v2/hook/owner-fixture")
+    sent = []
+
+    def notifier(text, **_credentials):
+        sent.append(text)
+        return {"status": "sent"}
+
+    sell_time = instant(day=18, second=6)
+    assert notify_new_fills(store, archived, sell_time, notifier) == []
+    assert not sent
+    approve(store, day=18)
+    store.broker.place_order("new-paper-sell", "sz.000001", "sell", 100, "9.99", instant(day=18), sell_time.date())
+    upgraded = ManagedWorker(connection, path, fetcher=lambda *a, **k: [quote(sell_time)], notifier=notifier)
+    result = upgraded.process_account(store.tenant_id, now=sell_time)
+    trade, = [text for text in sent if "[模拟成交]" in text]
+    assert len(result["fills"]) == 1 and result["fills"][0]["side"] == "sell"
+    assert result["trade_notifications"][0]["fill_ids"] == [str(result["fills"][0]["id"])]
+    assert "2026-11-18 10:00:06（北京时间） · 卖出 sz.000001" in trade
+    assert "100 股 × 9.99 元 · 成交额 999.00 元 · 费用 5.51 元" in trade
 
 
 def test_database_connection_reconnect_uses_capped_backoff(tmp_path):

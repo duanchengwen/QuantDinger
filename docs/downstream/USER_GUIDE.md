@@ -49,6 +49,8 @@ Newly generated daily ledgers trigger a summary of daily fill counts, buy/sell n
 
 The worker sends one exact-version reminder if a human-approved strategy is still disabled after ten minutes. With a qualifying intraday quote, it also identifies a missing daily security and band review for an enabled, unsubmitted version. Each daily-review reminder gets at most one attempt per version and trading day.
 
+New virtual fills have their own notification with Beijing time, direction, symbol, quantity, execution price, notional and fees. The worker saves the fill identifiers and delivery receipt. The daily ledger notification can run in the same cycle. Older fills retain their original receipt state.
+
 In **A-share Paper → Daily ledger**, check the **Feishu receipt** column. Webhook acknowledgement records provider acceptance. Check the Feishu group for actual display. Unknown outcomes remain in the ledger, and older reports show that no receipt was recorded.
 
 ## Remaining workflow
