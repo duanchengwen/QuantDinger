@@ -150,8 +150,8 @@
     },
     {
       "id": "feishu_trade_details",
-      "status": "tested_pending_cloud_release",
-      "acceptance": "Forward-only per-fill ID Feishu notices carry exact Shanghai time, side, quantity, price, notional and fee. Intent/result are durable and uncertain outcomes do not retry. Old fills and reports were not resent. Isolated tests cover both sides and daily-report coexistence."
+      "status": "deployed_pending_new_fill",
+      "acceptance": "Forward-only per-fill ID Feishu notices carry exact Shanghai time, side, quantity, price, notional and fee. Intent/result are durable and uncertain outcomes do not retry. Old fills and reports were not resent. Isolated tests cover both sides and daily-report coexistence. Cloud worker 90c1532 was verified healthy on Nov19 at 09:15 Asia/Shanghai. No new production fill or fill-notification receipt was observed."
     }
   ]
 }
