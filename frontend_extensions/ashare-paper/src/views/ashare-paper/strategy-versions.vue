@@ -44,7 +44,7 @@
       <a-form-item :label="t('strategyVersions')">
         <a-select v-model="selectedId" :disabled="loading || busy" :placeholder="t('noData')">
           <a-select-option v-for="version in versions" :key="version.id" :value="version.id">
-            {{ version.config.symbol }} · {{ versionStatus(version) }} · {{ formatTime(version.created_at) }}
+            {{ version.config.symbol }} · {{ t(strategySide(version)) }} · {{ versionStatus(version) }} · {{ formatTime(version.created_at) }}
           </a-select-option>
         </a-select>
       </a-form-item>
@@ -54,20 +54,31 @@
         <dt>{{ t('strategyVersionId') }}</dt><dd><code>{{ selected.id }}</code></dd>
         <dt>SHA-256</dt><dd><code>{{ selected.config_sha256 }}</code></dd>
         <dt>{{ t('symbol') }}</dt><dd>{{ selected.config.symbol }}</dd>
+        <dt>{{ t('side') }}</dt><dd>{{ t(strategySide(selected)) }}</dd>
         <dt>{{ t('quantity') }}</dt><dd>{{ selected.config.quantity }}</dd>
         <dt>{{ t('strategyThreshold') }}</dt><dd>{{ selected.config.threshold }}</dd>
         <dt>{{ t('price') }}</dt><dd>{{ selected.config.limit_price }}</dd>
         <dt>{{ t('strategyMaxCash') }}</dt><dd>{{ selected.config.max_cash }}</dd>
-        <template v-if="selected.funding">
-          <dt>{{ t('strategyRequiredCash') }}</dt><dd>{{ selected.funding.required_cash }}</dd>
+        <template v-if="buyFunding">
+          <dt>{{ t('strategyRequiredCash') }}</dt><dd>{{ buyFunding.required_cash }}</dd>
           <template v-if="!selected.execution_allowed && selected.status !== 'revoked'">
-            <dt>{{ t('strategyAvailableCash') }}</dt><dd>{{ selected.funding.available_cash }}</dd>
+            <dt>{{ t('strategyAvailableCash') }}</dt><dd>{{ buyFunding.available_cash }}</dd>
+          </template>
+        </template>
+        <template v-if="sellFunding">
+          <dt>{{ t('strategySellGrossFloor') }}</dt><dd>{{ sellFunding.sell_notional_floor }}</dd>
+          <template v-if="sellFunding.settled_shares_checked_at_submission">
+            <dt>{{ t('strategySellSettledShares') }}</dt><dd>{{ t('strategySellSettledSharesCheck') }}</dd>
           </template>
         </template>
         <template v-if="selected.config.research_reference">
           <dt>{{ t('strategyResearchReference') }}</dt><dd><code>{{ selected.config.research_reference.run_id }}</code></dd>
           <dt>{{ t('researchInputHash') }}</dt><dd><code>{{ selected.config.research_reference.input_hash }}</code></dd>
           <dt>{{ t('researchOutputHash') }}</dt><dd><code>{{ selected.config.research_reference.output_hash }}</code></dd>
+        </template>
+        <template v-if="selected.config.backtest_reference">
+          <dt>{{ t('strategyBacktestRun') }}</dt><dd><code>{{ selected.config.backtest_reference.run_id }}</code></dd>
+          <dt>{{ t('strategyBacktestHash') }}</dt><dd><code>{{ selected.config.backtest_reference.result_sha256 }}</code></dd>
         </template>
         <dt>{{ t('status') }}</dt><dd>{{ versionStatus(selected) }}</dd>
         <template v-if="selected.approved_at">
@@ -92,9 +103,10 @@
           </template>
         </template>
       </dl>
+      <strategy-backtest :key="selected.id + ':' + selected.config_sha256" :version="selected" />
       <a-alert v-if="capInsufficient" type="warning" show-icon :message="t('strategyCapInsufficient')" />
       <a-alert
-        v-else-if="selected.funding && !selected.funding.cash_sufficient && !selected.execution_allowed && selected.status !== 'revoked'"
+        v-else-if="buyFunding && !buyFunding.cash_sufficient && !selected.execution_allowed && selected.status !== 'revoked'"
         type="warning"
         show-icon
         :message="t('strategyCashInsufficient')" />
@@ -148,7 +160,10 @@ const versionPath = '/strategy-versions'
 const newKey = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), n => n.toString(16).padStart(2, '0')).join('')
 
 export default {
-  components: { StrategyTemplate: () => import('./strategy-template.vue') },
+  components: {
+    StrategyTemplate: () => import('./strategy-template.vue'),
+    StrategyBacktest: () => import('./strategy-backtest.vue')
+  },
   props: {
     active: { type: Boolean, required: true },
     accountReady: { type: Boolean, required: true },
@@ -176,9 +191,11 @@ export default {
   },
   computed: {
     selected () { return this.versions.find(item => item.id === this.selectedId) },
+    buyFunding () { return this.selected && this.strategySide(this.selected) === 'buy' ? this.selected.funding : null },
+    sellFunding () { return this.selected && this.strategySide(this.selected) === 'sell' && this.selected.funding?.side === 'sell' ? this.selected.funding : null },
     capInsufficient () {
       const version = this.selected
-      return Boolean(version && version.funding && !version.funding.cap_sufficient &&
+      return Boolean(version?.funding?.cap_sufficient === false &&
         !version.execution_allowed && version.status !== 'revoked')
     },
     canSave () {
@@ -206,6 +223,10 @@ export default {
   },
   methods: {
     t (key) { return this.$t('ashare.' + key) },
+    strategySide (version) {
+      const sides = { buy_once_below: 'buy', sell_once_above: 'sell' }
+      return sides[version.config?.kind] || 'unknown'
+    },
     versionStatus (version) {
       return this.t(version.execution_allowed ? 'strategyStatus.activated' : 'strategyStatus.' + version.status)
     },
@@ -218,6 +239,7 @@ export default {
         strategy_version_not_found: 'strategyLinkedVersionUnavailable',
         another_strategy_version_approved: 'strategyAnotherApproved',
         invalid_strategy_state_transition: 'strategyVersionChanged',
+        strategy_backtest_unavailable: 'strategyBacktestUnavailable',
         strategy_symbol_not_watched: 'strategySymbolNotWatched',
         strategy_research_unavailable: 'strategyResearchUnavailable',
         strategy_cash_cap_exceeded: 'strategyCapInsufficient'

@@ -36,13 +36,18 @@ def notify_text(text: str, *, webhook_url: str | None = None, signing_secret: st
 
 def notify_strategy_card(version, url, *, webhook_url, signing_secret):
     config = version["config"]
+    selling = config.get("kind") == "sell_once_above"
+    direction = "卖出" if selling else "买入"
+    comparison = "≥" if selling else "≤"
     lines = [
         f"生成时间：{beijing_time(version.get('created_at'))}",
-        f"标的：{config['symbol']} · {config['quantity']} 股",
-        f"触发价 {config['threshold']} 元 · 限价 {config['limit_price']} 元",
+        f"{direction} {config['symbol']} · {config['quantity']} 股",
+        f"触发价 {config['threshold']} 元 · 市价 {comparison} 触发 · 限价 {config['limit_price']} 元",
         f"含费上限：{config['max_cash']} 元",
-        "登录后人工批准此版本，再单独启用自动模拟委托。",
     ]
+    if config.get("backtest_reference"):
+        lines.append("该版本附有历史回测，打开页面可核对。")
+    lines.append("登录后人工批准此版本，再单独启用自动模拟委托。")
     return notify_paper_link("策略待审", lines, "查看待批策略", url, webhook_url=webhook_url,
                              signing_secret=signing_secret)
 

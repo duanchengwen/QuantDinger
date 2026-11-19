@@ -385,6 +385,20 @@ def strategy_version_evaluation(store, version_id):
     return evaluate_paper_strategy(store.connection, *store.key, version_id)
 
 
+@blueprint.get("/strategy-versions/<version_id>/backtest")
+@endpoint()
+def strategy_version_backtest(store, version_id):
+    from psycopg2.extras import RealDictCursor
+
+    from app.ashare.strategy_backtest_store import verify_reference
+
+    query_fields(set())
+    versions = StrategyVersions(store.connection, *store.key)
+    version = versions.get(version_id)
+    with store.connection, store.connection.cursor(cursor_factory=RealDictCursor) as cursor:
+        return verify_reference(cursor, *store.key, version['config'])
+
+
 @blueprint.post("/strategy-versions/<version_id>/decision")
 @endpoint(write=True)
 def decide_strategy_version(store, version_id):

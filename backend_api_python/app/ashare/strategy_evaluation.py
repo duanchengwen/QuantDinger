@@ -75,11 +75,12 @@ def _quote_records(cursor, key, symbol, ids):
 
 def _order_observation(cursor, key, version, order):
     config = version["config"]
+    side = "sell" if config["kind"] == "sell_once_above" else "buy"
     activated = version["activated_at"]
     order_id = str(order["id"])
     submitted = order["submitted_at"]
     day = order["trading_day"]
-    if (order["side"] != "buy" or order["symbol"] != config["symbol"]
+    if (order["side"] != side or order["symbol"] != config["symbol"]
             or order["quantity"] != config["quantity"] or order["limit_price"] != Decimal(config["limit_price"])
             or day != submitted.astimezone(SHANGHAI).date()
             or activated is None or version["approved_at"] is None or activated >= submitted):
@@ -125,8 +126,10 @@ def _order_observation(cursor, key, version, order):
     for fill in fills:
         proof = proofs[fill["quote_id"]]
         stamp = fill["exchange_time"]
-        if (fill["symbol"] != order["symbol"] or fill["side"] != "buy" or fill["quantity"] <= 0
-                or fill["price"] <= 0 or fill["price"] > order["limit_price"] or fill["fee"] < 0
+        price_outside_limit = (fill["price"] > order["limit_price"] if side == "buy"
+                               else fill["price"] < order["limit_price"])
+        if (fill["symbol"] != order["symbol"] or fill["side"] != side or fill["quantity"] <= 0
+                or fill["price"] <= 0 or price_outside_limit or fill["fee"] < 0
                 or stamp <= submitted or stamp.astimezone(SHANGHAI).date() != day
                 or fill["evidence_sha256"] != proof["recorded_quote_sha256"]
                 or _instant(stamp) != proof["exchange_time"]):
@@ -143,6 +146,7 @@ def _order_observation(cursor, key, version, order):
         raise _UnverifiedEvidence("order_fill_totals_mismatch")
     return {
         "order_id": order_id,
+        "side": side,
         "trading_day": day.isoformat(),
         "submitted_at": _instant(submitted),
         "status": order["status"],
@@ -159,6 +163,8 @@ def _order_observation(cursor, key, version, order):
 
 
 def _expiry_review(cursor, key, version, order):
+    if version["config"]["kind"] == "sell_once_above":
+        return None, "sell_expiry_review_not_supported"
     if order["status"] != "expired" or order["filled"] >= order["quantity"]:
         return None, "entry_expiry_not_observed"
     audit = _single(cursor, key, "order_expired", "id", order["id"])
@@ -266,7 +272,7 @@ def evaluate_paper_strategy(connection, tenant_id, account_id, version_id):
                 except _UnverifiedEvidence as exc:
                     proposal_reason = str(exc)
     proof = {
-        "method": METHOD,
+        "method": "paper_sell_once_execution_v1" if version["config"]["kind"] == "sell_once_above" else METHOD,
         "mode": "paper",
         "version_id": version_id,
         "config_sha256": version["config_sha256"],
@@ -278,7 +284,8 @@ def evaluate_paper_strategy(connection, tenant_id, account_id, version_id):
         "execution": execution,
         "performance": {
             "status": "insufficient_evidence",
-            "reason_codes": ["strategy_exit_not_attributed", "verified_valuation_not_available",
+            "reason_codes": ["entry_cost_basis_not_attributed" if version["config"]["kind"] == "sell_once_above"
+                             else "strategy_exit_not_attributed", "verified_valuation_not_available",
                              "holdout_not_evaluated"],
             "realized_pnl_cny": None,
             "marked_pnl_cny": None,

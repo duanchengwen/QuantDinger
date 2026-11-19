@@ -40,17 +40,9 @@
         <small v-if="removedSymbols.length" class="strategy-template-note">{{ t('strategyTemplateUnwatched') }}</small>
       </a-form-item>
       <p v-if="draft.symbol_scope === 'watched' && !symbols.length" class="strategy-template-note">{{ t('strategyTemplateEmptyWatchlist') }}</p>
-      <div class="strategy-template-prices">
-        <a-form-item :label="t('strategyThreshold')" :extra="t('strategyTemplateTriggerHelp')" html-for="strategy-template-trigger">
-          <a-input id="strategy-template-trigger" v-model="draft.trigger_price" inputmode="decimal" :disabled="!canEdit" />
-        </a-form-item>
-        <a-form-item :label="t('price')" :extra="t('strategyTemplateLimitHelp')" html-for="strategy-template-limit">
-          <a-input id="strategy-template-limit" v-model="draft.limit_price" inputmode="decimal" :disabled="!canEdit" />
-        </a-form-item>
-        <a-form-item :label="t('strategyMaxCash')" :extra="t('strategyTemplateCashHelp')" html-for="strategy-template-cap">
-          <a-input id="strategy-template-cap" v-model="draft.max_cash" inputmode="decimal" :disabled="!canEdit" />
-        </a-form-item>
-      </div>
+      <a-form-item :label="t('strategyTemplateCashCap')" :extra="t('strategyTemplateCashHelp')" html-for="strategy-template-cap">
+        <a-input id="strategy-template-cap" v-model="draft.max_cash" inputmode="decimal" :disabled="!canEdit" />
+      </a-form-item>
       <p v-if="canEdit && validationError" class="strategy-template-note">{{ t(validationError) }}</p>
       <a-button v-if="canWrite" type="primary" html-type="submit" :loading="saving" :disabled="!canSave">
         {{ t('strategyTemplateSave') }}
@@ -63,14 +55,11 @@
 import { paperRequest } from '@/api/asharePaper'
 
 const templatePath = '/strategy-template'
-const emptyTemplate = () => ({ enabled: false, symbol_scope: 'watched', symbols: [], trigger_price: '', limit_price: '', max_cash: '' })
-const templateFields = ['trigger_price', 'limit_price', 'max_cash']
+const emptyTemplate = () => ({ enabled: false, symbol_scope: 'watched', symbols: [], max_cash: '' })
 const scopes = ['watched', 'selected']
 
-function cents (value) {
-  if (typeof value !== 'string' || !/^\d{1,9}(?:\.\d{1,2})?$/.test(value)) return 0
-  const [whole, fraction = ''] = value.split('.')
-  return Number(whole) * 100 + Number(fraction.padEnd(2, '0'))
+function validCash (value) {
+  return typeof value === 'string' && /^\d{1,9}(?:\.\d{1,2})?$/.test(value) && Number(value) > 0
 }
 
 function readTemplate (response, previousRevision) {
@@ -80,8 +69,9 @@ function readTemplate (response, previousRevision) {
   if ((previousRevision !== undefined && response.revision <= previousRevision) || !template ||
       typeof template.enabled !== 'boolean' || !scopes.includes(template.symbol_scope) ||
       !Array.isArray(template.symbols) || template.symbols.some(symbol => typeof symbol !== 'string') ||
-      templateFields.some(field => !cents(template[field]))) throw new Error('invalid_template_response')
-  return { revision: response.revision, template }
+      !validCash(template.max_cash)) throw new Error('invalid_template_response')
+  const { enabled, symbol_scope: scope, symbols, max_cash: cap } = template
+  return { revision: response.revision, template: { enabled, symbol_scope: scope, symbols, max_cash: cap } }
 }
 
 function errorCode (error) {
@@ -121,13 +111,11 @@ export default {
     },
     canEdit () { return this.active && this.accountReady && this.canWrite && this.loadState === 'ready' && !this.saving && !this.conflict },
     payload () {
-      const { enabled, symbol_scope: scope, symbols, trigger_price: trigger, limit_price: limit, max_cash: cap } = this.draft
+      const { enabled, symbol_scope: scope, symbols, max_cash: cap } = this.draft
       return {
         enabled,
         symbol_scope: scope,
         symbols: scope === 'selected' ? [...symbols] : [],
-        trigger_price: trigger.trim(),
-        limit_price: limit.trim(),
         max_cash: cap.trim()
       }
     },
@@ -135,8 +123,7 @@ export default {
       if (this.payload.symbol_scope === 'selected' && !this.payload.symbols.length) return 'strategyTemplateChooseSymbols'
       if (this.payload.symbols.length > 30) return 'strategyTemplateTooManySymbols'
       if (this.payload.enabled && this.payload.symbol_scope === 'selected' && this.removedSymbols.length) return 'strategyTemplateSymbolsNotWatched'
-      if (templateFields.some(field => !cents(this.payload[field]))) return 'strategyTemplateMoneyInvalid'
-      if (cents(this.payload.max_cash) <= 100 * cents(this.payload.limit_price)) return 'strategyTemplateCashTooSmall'
+      if (!validCash(this.payload.max_cash)) return 'strategyTemplateMoneyInvalid'
       return ''
     },
     canSave () { return this.canEdit && !this.validationError }
@@ -170,8 +157,6 @@ export default {
       const keys = {
         strategy_template_conflict: 'strategyTemplateConflict',
         strategy_template_symbols_not_watched: 'strategyTemplateSymbolsNotWatched',
-        strategy_cash_cap_must_cover_order_and_fees: 'strategyTemplateCashTooSmall',
-        strategy_cash_cap_exceeded: 'strategyTemplateCashTooSmall',
         invalid_strategy_money: 'strategyTemplateMoneyInvalid',
         paper_account_required: 'strategyTemplateAccount'
       }
@@ -225,7 +210,6 @@ export default {
 .strategy-template-actions, .strategy-template .ant-alert { margin: 0 0 12px; }
 .strategy-template-actions:empty { display: none; }
 .strategy-template .ant-switch { margin-left: 8px; }
-.strategy-template-prices { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: 4px 12px; }
-.strategy-template-prices .ant-form-item { margin-bottom: 12px; }
+.strategy-template .ant-input { max-width: 240px; }
 .strategy-template-note { display: block; margin: 8px 0; }
 </style>

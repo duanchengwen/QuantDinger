@@ -142,6 +142,11 @@
       "id": "paper_action_reminders",
       "status": "deployed_pending_live_action",
       "acceptance": "One-shot scoped Feishu reminders for an approved version awaiting activation and qualifying intraday conditions awaiting human daily security review. Isolated database fixtures verified exact URLs, current evidence, receipt claiming and no retry after uncertain delivery. Genuine actions and Feishu group display remain pending. Released to the cloud in ed6f281, and the safety flags and HTTPS 5188 origin were verified."
+    },
+    {
+      "id": "backtested_automatic_paper_buy_sell",
+      "status": "tested_pending_cloud_release",
+      "acceptance": "Exact-version automatic buy/sell draft uses a fixed 60-session historical replay with 40-session holdout, data hashes, fees and settled positions. Controlled PostgreSQL rehearsals cover both sides and explicit independent approval and enable. A single real BaoStock probe timed out. Natural data, a genuine approved order and actual delivery remain to be observed."
     }
   ]
 }

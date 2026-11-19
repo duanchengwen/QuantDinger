@@ -234,7 +234,7 @@
       "PaperStrategyTemplate": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["enabled", "symbol_scope", "symbols", "trigger_price", "limit_price", "max_cash"],
+        "required": ["enabled", "symbol_scope", "symbols", "max_cash"],
         "properties": {
           "enabled": {"type": "boolean"},
           "symbol_scope": {"type": "string", "enum": ["watched", "selected"]},
@@ -243,8 +243,6 @@
             "uniqueItems": true,
             "items": {"type": "string", "pattern": "^(sh\\.60[0-9]{4}|sz\\.(000|001|002|003|300|301)[0-9]{3})$"}
           },
-          "trigger_price": {"type": "string", "pattern": "^[0-9]{1,9}(\\.[0-9]{1,2})?$"},
-          "limit_price": {"type": "string", "pattern": "^[0-9]{1,9}(\\.[0-9]{1,2})?$"},
           "max_cash": {"type": "string", "pattern": "^[0-9]{1,9}(\\.[0-9]{1,2})?$"}
         }
       },
@@ -279,7 +277,8 @@
           "kind": {
             "type": "string",
             "enum": [
-              "buy_once_below"
+              "buy_once_below",
+              "sell_once_above"
             ]
           },
           "symbol": {
@@ -303,6 +302,17 @@
           "max_cash": {
             "type": "string",
             "pattern": "^[0-9]{1,9}(\\.[0-9]{1,2})?$"
+          },
+          "research_reference": {
+            "type": "object", "additionalProperties": false, "required": ["run_id", "input_hash", "output_hash"],
+            "properties": {"run_id": {"type": "string", "pattern": "^[a-f0-9]{32}$"},
+              "input_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+              "output_hash": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}
+          },
+          "backtest_reference": {
+            "type": "object", "additionalProperties": false, "required": ["run_id", "result_sha256"],
+            "properties": {"run_id": {"type": "string", "pattern": "^[a-f0-9]{32}$"},
+              "result_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}
           }
         }
       },
@@ -1604,6 +1614,28 @@
             }
           },
           "400": {"description": "Invalid version ID, unexpected query fields or version unavailable to the signed-in account"},
+          "401": {"description": "Human authentication required"},
+          "503": {"description": "Database unavailable"}
+        }
+      }
+    },
+    "/strategy-versions/{version_id}/backtest": {
+      "get": {
+        "summary": "Read the immutable historical backtest attached to one exact paper strategy version",
+        "parameters": [{"name": "version_id", "in": "path", "required": true,
+          "schema": {"type": "string", "pattern": "^[a-f0-9]{32}$"}}],
+        "responses": {
+          "200": {
+            "description": "Verified evidence and metrics, or a null data value for a version without a backtest",
+            "content": {"application/json": {"schema": {"type": "object", "properties": {
+              "code": {"type": "integer", "enum": [1]}, "msg": {"type": "string"},
+              "data": {"type": "object", "nullable": true, "required": ["run_id", "result_sha256", "status", "reason_code", "evidence", "metrics"],
+                "properties": {"run_id": {"type": "string"}, "result_sha256": {"type": "string"},
+                  "status": {"type": "string", "enum": ["candidate"]}, "reason_code": {"type": "string"},
+                  "evidence": {"type": "object"}, "metrics": {"type": "object"}}}
+            }}}}
+          },
+          "400": {"description": "Unknown version or mismatched backtest evidence"},
           "401": {"description": "Human authentication required"},
           "503": {"description": "Database unavailable"}
         }

@@ -104,7 +104,7 @@ test('opening a candidate starts a blank draft and saving attaches only its rese
 })
 
 test('funding preview survives a decision and stops warning after revocation', async () => {
-  const version = { id: 'a'.repeat(32), status: 'approved', config_sha256: 'b'.repeat(64), execution_allowed: false }
+  const version = { id: 'a'.repeat(32), config: { kind: 'buy_once_below' }, status: 'approved', config_sha256: 'b'.repeat(64), execution_allowed: false }
   const funding = { required_cash: '1005.01', available_cash: '1080.00', cap_sufficient: false, cash_sufficient: true }
   const state = mount(() => ({ ...version, status: 'revoked' }))
   state.versions = [{ ...version, funding }]
@@ -113,6 +113,21 @@ test('funding preview survives a decision and stops warning after revocation', a
   await state.decide(version, 'revoked')
   assert.equal(state.capInsufficient, false)
   assert.deepEqual(state.selected.funding, funding)
+})
+
+test('legacy buy and new sell versions have their own direction and buy-only funding display', () => {
+  const state = mount(() => assert.fail('Direction must not call the API'))
+  const buy = { id: 'a'.repeat(32), config: { kind: 'buy_once_below' }, funding: { required_cash: '1050.00' } }
+  const sell = { id: 'b'.repeat(32), config: { kind: 'sell_once_above' }, funding: { notes: 'sell funding' } }
+  state.versions = [buy, sell]
+  assert.equal(state.strategySide(buy), 'buy')
+  assert.equal(state.strategySide(sell), 'sell')
+  assert.equal(state.strategySide({ config: {} }), 'unknown')
+  state.selectedId = buy.id
+  assert.equal(state.buyFunding, buy.funding)
+  state.selectedId = sell.id
+  assert.equal(state.buyFunding, null)
+  assert.equal(state.capInsufficient, false)
 })
 
 test('refresh and revocation replace the persisted order status for the selected version', async () => {

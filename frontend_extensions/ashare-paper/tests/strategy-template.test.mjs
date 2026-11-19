@@ -9,7 +9,7 @@ const script = source.split('<script>')[1].split('</script>')[0]
 
 const watched = 'sz.000001'
 const removed = 'sh.600000'
-const prices = { trigger_price: '9.80', limit_price: '10.20', max_cash: '1050.00' }
+const cap = '1050.00'
 
 function mount (request, props) {
   const component = new Function('paperRequest', script)(request)
@@ -28,7 +28,7 @@ function mount (request, props) {
 }
 
 function watchedTemplate (enabled = true) {
-  return { enabled, symbol_scope: 'watched', symbols: [], ...prices }
+  return { enabled, symbol_scope: 'watched', symbols: [], max_cash: cap }
 }
 
 test('first load defaults to disabled and a watched template saves settings only', async () => {
@@ -41,7 +41,7 @@ test('first load defaults to disabled and a watched template saves settings only
   assert.equal(state.draft.enabled, false)
   assert.equal(state.canSave, false)
   assert.deepEqual(calls, [['/strategy-template']])
-  Object.assign(state.draft, prices, { enabled: true, symbols: [watched] })
+  Object.assign(state.draft, { max_cash: cap, enabled: true, symbols: [watched] })
   await state.save()
   assert.deepEqual(calls[1], ['/strategy-template', 'put', {
     expected_revision: 0,
@@ -51,6 +51,7 @@ test('first load defaults to disabled and a watched template saves settings only
   assert.equal(state.savedTemplate.enabled, true)
   assert.equal(state.revision, 1)
   assert.equal(state.saved, true)
+  assert.doesNotMatch(source, /strategy-template-(trigger|limit)/)
 })
 
 test('known names display in the picker and removed symbols still allow disabling', async () => {
@@ -142,25 +143,25 @@ test('missing accounts, auth errors, malformed data and viewer access cannot wri
   await viewer.save()
 })
 
-test('the form validates decimal syntax and explains the server fee check', async () => {
+test('the form accepts a positive decimal cap without guessing from a stock price', async () => {
   const state = mount((path, method) => {
-    if (method === 'put') throw new Error('strategy_cash_cap_exceeded')
+    if (method === 'put') throw new Error('invalid_strategy_money')
     return { revision: 1, template: watchedTemplate() }
   })
   await state.refresh()
-  state.draft.trigger_price = '9.801'
+  state.draft.max_cash = '9.801'
   assert.equal(state.validationError, 'strategyTemplateMoneyInvalid')
-  state.draft.trigger_price = '9.80'
-  state.draft.max_cash = '1020.00'
-  assert.equal(state.validationError, 'strategyTemplateCashTooSmall')
-  state.draft.max_cash = '1020.01'
+  state.draft.max_cash = '0'
+  assert.equal(state.validationError, 'strategyTemplateMoneyInvalid')
+  state.draft.max_cash = '10.01'
+  assert.equal(state.canSave, true)
   await state.save()
-  assert.equal(state.error, 'ashare.strategyTemplateCashTooSmall')
+  assert.equal(state.error, 'ashare.strategyTemplateMoneyInvalid')
   assert.equal(state.saved, false)
   assert.equal(state.savedTemplate.max_cash, '1050.00')
 })
 
-test('paper buy shortcut scrolls to the template and an exact strategy link keeps priority', () => {
+test('paper buy/sell shortcut scrolls to the settings and an exact strategy link keeps priority', () => {
   const page = readFileSync(new URL('../src/views/ashare-paper/index.vue', import.meta.url), 'utf8')
   const pageScript = page.split('<script>')[1].split('</script>')[0]
     .replace(/^import .*$/gm, '')

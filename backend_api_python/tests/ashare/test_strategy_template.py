@@ -14,8 +14,7 @@ UNSAVED = {"revision": 0, "template": None}
 
 
 def template(**overrides):
-    return {"enabled": True, "symbol_scope": "watched", "symbols": [], "trigger_price": "10",
-            "limit_price": "10.01", "max_cash": "1200", **overrides}
+    return {"enabled": True, "symbol_scope": "watched", "symbols": [], "max_cash": "1200", **overrides}
 
 
 def put(api, value, revision=0, token="user"):
@@ -24,7 +23,7 @@ def put(api, value, revision=0, token="user"):
 
 def test_template_restores_only_canonical_saved_settings():
     assert saved_template({"symbols": ["sz.000001"]}) == UNSAVED
-    value = template(symbol_scope="selected", symbols=["sh.600000"], trigger_price="10.00", max_cash="1200.00")
+    value = template(symbol_scope="selected", symbols=["sh.600000"], max_cash="1200.00")
     settings = {"symbols": ["sz.000001"], "strategy_template": {"revision": 3, "template": value}}
     restored = saved_template(settings)
     assert restored == settings["strategy_template"]
@@ -34,6 +33,13 @@ def test_template_restores_only_canonical_saved_settings():
                       {"revision": 1, "template": None}, {"revision": 1, "template": template()}):
         with pytest.raises(ValueError, match="^strategy_template_integrity_error$"):
             saved_template({"strategy_template": malformed})
+
+
+def test_legacy_price_template_requires_new_opt_in():
+    legacy = {**template(max_cash="1200.00"), "trigger_price": "10.00", "limit_price": "10.01"}
+    settings = {"strategy_template": {"revision": 7, "template": legacy}}
+    assert saved_template(settings) == {"revision": 7, "template": template(enabled=False, max_cash="1200.00")}
+    assert settings["strategy_template"]["template"]["enabled"] is True
 
 
 def test_template_api_is_human_tenant_scoped_and_has_no_execution_effect(client):  # noqa: F811
@@ -50,7 +56,7 @@ def test_template_api_is_human_tenant_scoped_and_has_no_execution_effect(client)
 
     saved = put(client, template())
     assert saved.status_code == 200
-    clean_template = template(trigger_price="10.00", max_cash="1200.00")
+    clean_template = template(max_cash="1200.00")
     assert saved.json["data"] == {"revision": 1, "template": clean_template}
     assert call(client, PATH + "?_t=1", token="viewer", method="GET").json["data"] == saved.json["data"]
     assert call(client, PATH, token="other", method="GET").json["data"] == UNSAVED
@@ -71,12 +77,10 @@ def test_template_api_is_human_tenant_scoped_and_has_no_execution_effect(client)
     ({"symbol_scope": "selected", "symbols": ["sh.688001"]}, "invalid_strategy_template"),
     ({"symbol_scope": "selected", "symbols": ["sh.600000"]}, "strategy_template_symbols_not_watched"),
     ({"quantity": 100}, "invalid_strategy_template"),
-    ({"trigger_price": 10}, "invalid_strategy_money"),
-    ({"trigger_price": "1e1"}, "invalid_strategy_money"),
-    ({"trigger_price": "10.001"}, "invalid_strategy_money"),
-    ({"limit_price": "0"}, "invalid_strategy_money"),
-    ({"max_cash": "1001"}, "strategy_cash_cap_must_cover_order_and_fees"),
-    ({"max_cash": "1001.01"}, "strategy_cash_cap_exceeded"),
+    ({"trigger_price": 10}, "invalid_strategy_template"),
+    ({"max_cash": "1e1"}, "invalid_strategy_money"),
+    ({"max_cash": "10.001"}, "invalid_strategy_money"),
+    ({"max_cash": "0"}, "invalid_strategy_money"),
 ])
 def test_template_rejects_unsupported_fields_money_and_unguarded_scope(client, overrides, reason):  # noqa: F811
     call(client, "/initialize", {"initial_cash": "10000"})
@@ -119,7 +123,7 @@ def test_concurrent_template_saves_conflict_instead_of_overwriting(client):  # n
     def save(price):
         other_client = client.application.test_client()
         barrier.wait()
-        return put(other_client, template(trigger_price=price))
+        return put(other_client, template(max_cash=price))
 
     with ThreadPoolExecutor(max_workers=2) as threads:
         responses = list(threads.map(save, ("10.02", "10.03")))

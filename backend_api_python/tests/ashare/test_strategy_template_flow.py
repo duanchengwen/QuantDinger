@@ -1,29 +1,34 @@
 """Controlled acceptance from web settings to one paper fill using PostgreSQL."""
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from functools import partial
 import os
 
 import psycopg2
+import pytest
 
-from app.ashare import notifications, strategy_proposals, web_api
+from app.ashare import notifications, strategy_backtest, strategy_history, strategy_proposals, web_api
 from app.ashare.broker import SHANGHAI
 from app.ashare.managed_worker import ManagedWorker
 from app.ashare.research import ResearchStore
 from app.ashare.strategy_versions import StrategyVersions
+from app.ashare.web_store import WebStore
 from test_managed_worker import instant, quote
 from test_research import Adapter, News, SYMBOL, Themes
+from test_strategy_backtest import AS_OF, _source
 from test_strategy_template import put, template
 from test_web_api import call, client  # noqa: F401
 
 
+@pytest.mark.parametrize(("side", "trend"), [("buy", "up"), ("sell", "down")])
 def test_saved_template_research_notice_and_human_enable_lead_to_exactly_one_paper_fill(
-        client, monkeypatch, tmp_path):  # noqa: F811
+        client, monkeypatch, tmp_path, side, trend):  # noqa: F811
     versions_path = "/strategy-versions"
     assert call(client, "/initialize", {"initial_cash": "10000"}).status_code == 200
     assert call(client, "/settings", {"symbols": [SYMBOL], "interval_seconds": 5,
                                      "research_preferences": {"topics": ["ai"]}}, method="PUT").status_code == 200
-    assert put(client, template(symbol_scope="selected", symbols=[SYMBOL])).status_code == 200
+    assert put(client, template(symbol_scope="selected", symbols=[SYMBOL], max_cash="3000")).status_code == 200
     assert call(client, versions_path, method="GET").json["data"]["versions"] == []
     assert call(client, "/state", method="GET").json["data"]["orders"] == []
 
@@ -40,6 +45,21 @@ def test_saved_template_research_notice_and_human_enable_lead_to_exactly_one_pap
         return {"status": "sent"}
 
     monkeypatch.setattr(notifications, "_send", fake_webhook)
+    # Use the actual backtest on a hash-verified controlled provider archive.
+    evidence_dir = tmp_path / "historical"
+    days, _ = strategy_history.history_window(AS_OF)
+    source = _source(days, ending=trend)
+    source["request"] = strategy_history._range_request(SYMBOL, days)
+    for row in source["bars"]["rows"]:
+        row[1] = SYMBOL
+    strategy_history._archive_range(evidence_dir, source, SYMBOL, days, AS_OF - timedelta(hours=1))
+    real_evaluate = strategy_backtest.evaluate
+
+    def evaluate_fixture(connection, symbol, *, as_of, **arguments):
+        del as_of
+        return real_evaluate(connection, symbol, as_of=AS_OF, evidence_dir=evidence_dir, **arguments)
+
+    monkeypatch.setattr(strategy_backtest, "evaluate", evaluate_fixture)
     # Keep research timestamps from PostgreSQL while controlling the proposal calendar input.
     research_day = datetime.now(SHANGHAI).date()
     monkeypatch.setattr(strategy_proposals, "trading_day_status", lambda day: {"is_trading_day": day == research_day})
@@ -55,6 +75,15 @@ def test_saved_template_research_notice_and_human_enable_lead_to_exactly_one_pap
     monkeypatch.setattr(web_api, "StrategyVersions", partial(StrategyVersions, clock=lambda: tick))
 
     with closing(psycopg2.connect(os.environ["TEST_ASHARE_DATABASE_URL"])) as connection:
+        if side == "sell":
+            prior = instant(day=16)
+            store = WebStore(connection, *scope)
+            store.broker.place_order("fixture-opening-position", SYMBOL, "buy", 100, Decimal("10"), prior, prior.date())
+            prior_tick = prior + timedelta(seconds=1)
+            rules = {"symbol": SYMBOL, "reviewed": True, "trading_day": prior.date().isoformat(),
+                     "is_trading_day": True, "suspended": False, "st": False, "limit_up": "11", "limit_down": "9"}
+            store.broker.on_quote({**quote(prior_tick), "symbol": SYMBOL}, rules, prior_tick)
+        existing_orders = call(client, "/state", method="GET").json["data"]["orders"]
         research = ResearchStore(connection, *scope)
         queued = research.request_scheduled_run(research_day)
         adapter = Adapter()
@@ -71,15 +100,30 @@ def test_saved_template_research_notice_and_human_enable_lead_to_exactly_one_pap
         assert draft["config"]["research_reference"] == {
             "run_id": complete["id"], "input_hash": complete["input_hash"], "output_hash": complete["output_hash"],
         }
-        assert call(client, "/state", method="GET").json["data"]["orders"] == []
+        assert call(client, "/state", method="GET").json["data"]["orders"] == existing_orders
 
-        worker = ManagedWorker(connection, tmp_path, notifications_enabled=False,
-                               fetcher=lambda *_args, **_kwargs: [{**quote(tick), "symbol": SYMBOL, "name": "浦发银行"}])
+        proof = call(client, version_path + "/backtest", method="GET").json["data"]
+        assert proof["result_sha256"] == draft["config"]["backtest_reference"]["result_sha256"]
+        assert proof["status"] == "candidate" and proof["metrics"]["closed_round_trips"] >= 1
+        assert proof["evidence"]["source_kind"] == "range_archive"
+        assert draft["config"]["kind"] == ("buy_once_below" if side == "buy" else "sell_once_above")
+        assert call(client, version_path + "/backtest", token="other", method="GET").status_code == 400
+
+        price = Decimal(draft["config"]["limit_price"])
+        lower, upper = str(price - 1), str(price + 1)
+
+        def feed(*args, **kwargs):
+            return [{**quote(tick), "symbol": SYMBOL, "name": "浦发银行", "last": str(price),
+                     "bid": str(price), "ask": str(price), "previous_close": str(price),
+                     "open": str(price), "high": str(price), "low": str(price),
+                     "limit_up": upper, "limit_down": lower}]
+
+        worker = ManagedWorker(connection, tmp_path, notifications_enabled=False, fetcher=feed)
         worker.process_account(*scope, now=tick)
         tick = instant(second=1)
         review = call(client, "/rules/review", {"symbol": SYMBOL, "trading_day": tick.date().isoformat(),
                                                "suspended": False, "st": False, "evidence": "Controlled test fixture",
-                                               "limit_up": "11", "limit_down": "9"})
+                                               "limit_up": upper, "limit_down": lower})
         assert review.json["data"]["approval_method"] == "explicit_human_review"
         tick = instant(second=6)
         before_approval = worker.process_account(*scope, now=tick)
@@ -93,7 +137,7 @@ def test_saved_template_research_notice_and_human_enable_lead_to_exactly_one_pap
         tick = instant(second=12)
         approved_only = worker.process_account(*scope, now=tick)
         assert approved_only["state"] == "healthy" and approved_only["strategy_submitted"] == []
-        assert call(client, "/state", method="GET").json["data"]["orders"] == []
+        assert call(client, "/state", method="GET").json["data"]["orders"] == existing_orders
 
         tick = instant(second=13)
         enabled = call(client, decision_path, {**decision, "decision": "activated"}).json["data"]
@@ -106,7 +150,7 @@ def test_saved_template_research_notice_and_human_enable_lead_to_exactly_one_pap
         execution = worker.process_account(*scope, now=tick)
         fill, = execution["fills"]
         assert execution["strategy_submitted"] == [] and fill["order_id"] == order_id
-        assert fill["side"] == "buy" and fill["quantity"] == 100 and fill["symbol"] == SYMBOL
+        assert fill["side"] == side and fill["quantity"] == 100 and fill["symbol"] == SYMBOL
 
         tick = instant(second=30)
         repeated = worker.process_account(*scope, now=tick)
@@ -117,5 +161,5 @@ def test_saved_template_research_notice_and_human_enable_lead_to_exactly_one_pap
 
     assert len(notices) == adapter.calls == 1
     state = call(client, "/state", method="GET").json["data"]
-    assert len(state["orders"]) == len(state["fills"]) == 1
-    assert state["orders"][0]["status"] == "filled"
+    assert len(state["orders"]) == len(state["fills"]) == len(existing_orders) + 1
+    assert all(order["status"] == "filled" for order in state["orders"])

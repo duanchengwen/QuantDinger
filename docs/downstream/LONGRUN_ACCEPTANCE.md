@@ -101,3 +101,10 @@ The follow-up port change at 07:46 disabled the 443 application listener. The ba
 The template shortcut was released at 07:52. A signed-in 390 px browser on public port 5188 opened the direct link, scrolled to the form and read the live endpoint with HTTP 200 and no writes. The separate frontend build passed 55 tests.
 
 Backend release `ed6f281` went live at 08:40 with manual-action Feishu reminders and aligned research prompts. Four services, public 5188 and authenticated endpoints passed checks. Eight stable table fingerprints matched, and the single failed research record retained both exact hashes. Python 3.11 and 3.12 each passed 582 backend tests. Operations passed 171 tests and three subtests. There was no pending strategy action or production action-notification receipt. The next natural request is scheduled for November 20 at 08:30.
+
+
+## November 19 automatic buy/sell proposal and historical replay acceptance
+
+The simplified template reads the symbol scope, opt-in and fee-inclusive order cap. An isolated PostgreSQL suite used the real backtester with controlled, hash-verified historical archives. The buy and sell paths each created one version with its historical report and one simulated exact-version Feishu card. No new order appeared before approval or after approval alone. Separate activation, explicit security review and fresh controlled quotes then produced one 100-share virtual fill in each path. The sale used settled T+1 holdings and was checked for the fee-inclusive cap at each fill.
+
+Both Python 3.11 and 3.12 passed 610 backend tests. Operations passed 171 tests and three subtests. The frontend passed 60 tests, a production build and a 390 px browser rehearsal. An isolated cloud container made one actual BaoStock range request for a watched symbol. It timed out at 24 seconds. The historical result had no metrics. The November 20 scheduled result remains pending.

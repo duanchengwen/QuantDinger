@@ -51,7 +51,8 @@ STATUSES = {'ingested', 'idle', 'queued', 'started', 'completed', 'failed', 'no_
             'needs_model_configuration', 'skipped_before_window', 'skipped_active', 'skipped_daily_limit'}
 PROPOSAL_DRAFT_STATUSES = {'draft_created', 'already_proposed'}
 PROPOSAL_SKIP_STATUSES = {'inactive_template', 'invalid_template', 'proposal_failed', 'no_verified_trading_day',
-                          'no_completed_scheduled_run', 'no_eligible_template_match'}
+                          'no_completed_scheduled_run', 'no_eligible_template_match',
+                          'backtest_insufficient_evidence', 'backtest_inputs_changed', 'no_backtest_signal'}
 NOTICE_STATUSES = {'unconfigured', 'not_claimed', 'unknown', 'webhook_acknowledged', 'disabled', 'rejected', 'failed'}
 ACTION_KINDS = {'activate_approved_strategy', 'review_daily_security_rules'}
 
@@ -152,7 +153,7 @@ try:
                 except (ValueError, TypeError):
                     result['proposal'] = {'status': 'invalid_template'}
                 else:
-                    result['proposal'] = propose_and_notify(connection, template, scope=scope)
+                    result['proposal'] = propose_and_notify(connection, template, scope=scope, collect=True)
         else:
             from app.ashare.research import ResearchStore, ResearchError
             safe_exception = lambda error: str(error) if isinstance(error, ResearchError) and str(error) in SAFE_RESEARCH_ERRORS else 'research_job_failed'

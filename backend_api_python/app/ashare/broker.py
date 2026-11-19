@@ -113,7 +113,7 @@ class PaperBroker:
                                             price, submitted_at, trading_day)
 
     def _place_order_locked(self, cursor, account, client_order_id, symbol, side, quantity, price,
-                            submitted_at, trading_day, *, max_cash=None):
+                            submitted_at, trading_day, *, max_cash=None, sell_upper_bound=None):
         """Insert with the caller already holding the account row and validating inputs."""
         existing = self._find_order(cursor, client_order_id)
         if existing:
@@ -129,6 +129,12 @@ class PaperBroker:
             if reserve > account["cash"] - account["reserved_cash"]:
                 raise ValueError("insufficient available cash")
         else:
+            if max_cash is not None:
+                if sell_upper_bound is None or sell_upper_bound < price:
+                    raise ValueError("strategy_sell_upper_band_required")
+                worst_notional = sell_upper_bound * quantity
+                if worst_notional + sum(self._costs(worst_notional, "sell")) > max_cash:
+                    raise ValueError("strategy_cash_cap_exceeded")
             cursor.execute("SELECT COALESCE(SUM(quantity),0) AS qty FROM qd_ashare_lots WHERE tenant_id=%s AND account_id=%s AND symbol=%s AND acquired_day<%s", (*self.key, symbol, trading_day))
             settled = cursor.fetchone()["qty"]
             cursor.execute("SELECT COALESCE(SUM(quantity-filled),0) AS qty FROM qd_ashare_orders WHERE tenant_id=%s AND account_id=%s AND symbol=%s AND side='sell' AND status IN ('open','partial')", (*self.key, symbol))
@@ -250,9 +256,35 @@ class PaperBroker:
                 quantity = min(order["quantity"] - order["filled"], capacities[side]) // 100 * 100
                 if not quantity:
                     continue
+                if order["client_order_id"].startswith(STRATEGY_ORDER_PREFIX):
+                    try:
+                        self._validate_strategy_fill(cursor, order, rules, quantity, price)
+                    except ValueError as exc:
+                        self._audit(cursor, "strategy_order_fill_blocked", {
+                            "order_id": order["id"], "reason": str(exc), "quote_id": quote["quote_id"],
+                        })
+                        continue
                 capacities[side] -= quantity
                 fills.append(self._fill(cursor, order, quantity, price, quote, timestamp, day))
             return fills
+
+    def _validate_strategy_fill(self, cursor, order, rules, quantity, price):
+        """Recheck immutable authorization and actual absolute notional before every managed fill."""
+        from app.ashare.strategy_versions import StrategyVersions
+
+        versions = StrategyVersions(self.connection, *self.key)
+        version = versions._find(cursor, order["client_order_id"][len(STRATEGY_ORDER_PREFIX):])
+        config = version["config"]
+        side = "sell" if config["kind"] == "sell_once_above" else "buy"
+        if (not version["execution_allowed"] or rules.get("reviewed_by") != version["activated_by"]
+                or order["side"] != side or order["symbol"] != config["symbol"]
+                or order["quantity"] != config["quantity"]
+                or order["limit_price"] != Decimal(config["limit_price"])):
+            raise ValueError("strategy_execution_authorization_unavailable")
+        versions._verify_research(cursor, config)
+        notional = order["notional"] + quantity * price
+        if notional + sum(self._costs(notional, side)) > Decimal(config["max_cash"]):
+            raise ValueError("strategy_cash_cap_exceeded")
 
     def _fill(self, cursor, order, quantity, price, quote, timestamp, day):
         side = order["side"]

@@ -417,6 +417,17 @@ def test_pg_configuration_and_no_evidence_never_call_model(store):
     assert run['status'] == 'no_evidence' and run['error_code'] == 'no_news_evidence' and adapter.calls == 0
 
 
+def _fixture_backtest(_connection, symbol, *, as_of, max_cash, fee_policy, settled_quantity):
+    del as_of, fee_policy, settled_quantity
+    return {
+        "status": "candidate", "reason_code": "controlled_fixture", "execution_allowed": False,
+        "evidence": {"fixture": True}, "metrics": {"closed_round_trips": 2},
+        "config": {"mode": "paper", "kind": "buy_once_below", "symbol": symbol,
+                   "quantity": 200 if max_cash == "2500.00" else 100,
+                   "threshold": "12.10", "limit_price": "12.00", "max_cash": max_cash},
+    }
+
+
 def _proposal_template(tenant='user_1'):
     return {
         'schema_version': 1, 'enabled': True, 'tenant_id': tenant, 'account_id': 'paper',
@@ -463,6 +474,7 @@ def test_pg_proposal_from_proven_scheduled_run_is_atomic_review_only(dedicated_d
     from app.ashare.strategy_versions import PROPOSAL_REQUEST_PREFIX, StrategyVersions
     from app.ashare.web_store import WebStore
 
+    monkeypatch.setattr('app.ashare.strategy_backtest.evaluate', _fixture_backtest)
     monkeypatch.setattr(strategy_proposals, 'trading_day_status', lambda day: {'is_trading_day': True})
     now = datetime.now(timezone.utc)
     day = now.astimezone(SHANGHAI).date()
@@ -505,7 +517,7 @@ def test_pg_proposal_from_proven_scheduled_run_is_atomic_review_only(dedicated_d
             connection, json.dumps(_proposal_template('user_2')).encode(), scope=('user_1', 'paper'),
         ) == {'status': 'invalid_template'}
         selected = {'enabled': True, 'symbol_scope': 'selected', 'symbols': ['sz.000001'],
-                    'trigger_price': '12.10', 'limit_price': '12', 'max_cash': '1250'}
+                    'max_cash': '1250'}
         save_template(web, 0, selected, 1)
         assert strategy_proposals.propose_saved(connection, 'user_1', 'paper')['status'] == 'no_eligible_template_match'
         save_template(web, 1, {**selected, 'symbols': [SYMBOL]}, 1)
@@ -515,7 +527,7 @@ def test_pg_proposal_from_proven_scheduled_run_is_atomic_review_only(dedicated_d
         with connection, connection.cursor() as cursor:
             cursor.execute("""UPDATE qd_ashare_accounts SET fee_policy=fee_policy || '{"minimum_commission":"75"}'
                 WHERE tenant_id='user_1' AND account_id='paper'""")
-        assert strategy_proposals.propose_saved(connection, 'user_1', 'paper')['status'] == 'no_eligible_template_match'
+        assert strategy_proposals.propose_saved(connection, 'user_1', 'paper')['status'] == 'no_backtest_signal'
         with connection, connection.cursor() as cursor:
             cursor.execute("""UPDATE qd_ashare_accounts SET fee_policy=fee_policy || '{"minimum_commission":"5"}'
                 WHERE tenant_id='user_1' AND account_id='paper'""")
@@ -542,11 +554,13 @@ def test_pg_proposal_from_proven_scheduled_run_is_atomic_review_only(dedicated_d
         versions = StrategyVersions(connection, 'user_1', 'paper')
         draft = versions.get(results[0]['version_id'])
         assert draft['status'] == 'draft' and draft['execution_allowed'] is False
-        assert draft['config'] == {
+        expected_terms = {
             'mode': 'paper', 'kind': 'buy_once_below', 'symbol': SYMBOL, 'quantity': 200,
             'threshold': '12.10', 'limit_price': '12.00', 'max_cash': '2500.00',
             'research_reference': {'run_id': run['id'], 'input_hash': run['input_hash'], 'output_hash': run['output_hash']},
         }
+        assert {key: item for key, item in draft['config'].items() if key != 'backtest_reference'} == expected_terms
+        assert len(draft['config']['backtest_reference']['result_sha256']) == 64
         with pytest.raises(ValueError, match='invalid_strategy_request_key'):
             versions.create(draft['config'], PROPOSAL_REQUEST_PREFIX + run['id'], 1)
         with pytest.raises(ValueError, match='strategy_version_not_found'):
@@ -582,6 +596,8 @@ def test_pg_scheduler_runs_model_once_and_recovers_draft_notice_safely(
     import psycopg2
     from psycopg2 import sql
     from app.ashare import news, notifications, schema, strategy_proposals
+
+    monkeypatch.setattr('app.ashare.strategy_backtest.evaluate', _fixture_backtest)
     from app.ashare.broker import SHANGHAI
     from app.ashare.strategy_template import save_template
     from app.ashare.strategy_versions import config_hash
@@ -678,7 +694,7 @@ def test_pg_scheduler_runs_model_once_and_recovers_draft_notice_safely(
         else:
             page = save_template(web, 0, {
                 'enabled': True, 'symbol_scope': 'watched', 'symbols': [],
-                'trigger_price': '12.10', 'limit_price': '12', 'max_cash': '1250',
+                'max_cash': '1250',
             }, 1)
             work_options = {'tenant_id': 'user_1'}
 

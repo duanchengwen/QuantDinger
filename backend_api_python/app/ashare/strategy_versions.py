@@ -15,6 +15,7 @@ from app.ashare.runtime import utc_now
 
 CONFIG_FIELDS = frozenset({'mode', 'kind', 'symbol', 'quantity', 'threshold', 'limit_price', 'max_cash'})
 RESEARCH_REFERENCE = 'research_reference'
+BACKTEST_REFERENCE = 'backtest_reference'
 VERSION_ID = re.compile(r'[a-f0-9]{32}')
 SHA256 = re.compile(r'[a-f0-9]{64}')
 REQUEST_KEY = re.compile(r'[A-Za-z0-9_-]{8,100}')
@@ -59,7 +60,7 @@ def _positive_cash(value):
 
 
 def normalize_config(config):
-    if not isinstance(config, dict) or set(config) - {RESEARCH_REFERENCE} != CONFIG_FIELDS:
+    if not isinstance(config, dict) or set(config) - {RESEARCH_REFERENCE, BACKTEST_REFERENCE} != CONFIG_FIELDS:
         raise ValueError('invalid_strategy_config')
     if RESEARCH_REFERENCE in config:
         reference = config[RESEARCH_REFERENCE]
@@ -67,8 +68,18 @@ def normalize_config(config):
                 or not _matches(VERSION_ID, reference['run_id'])
                 or not all(_matches(SHA256, reference[key]) for key in ('input_hash', 'output_hash'))):
             raise ValueError('invalid_strategy_research_reference')
-    if config['mode'] != 'paper' or config['kind'] != 'buy_once_below':
+    if BACKTEST_REFERENCE in config:
+        reference = config[BACKTEST_REFERENCE]
+        if (not isinstance(reference, dict) or set(reference) != {'run_id', 'result_sha256'}
+                or not _matches(VERSION_ID, reference['run_id'])
+                or not _matches(SHA256, reference['result_sha256'])):
+            raise ValueError('invalid_strategy_backtest_reference')
+    if config['mode'] != 'paper' or config['kind'] not in ('buy_once_below', 'sell_once_above'):
         raise ValueError('unsupported_paper_strategy')
+    if config['kind'] == 'sell_once_above' and BACKTEST_REFERENCE not in config:
+        raise ValueError('strategy_backtest_reference_required')
+    if config['kind'] == 'sell_once_above' and RESEARCH_REFERENCE not in config:
+        raise ValueError('strategy_research_reference_required')
     if not supported(config['symbol']):
         raise ValueError('unsupported_strategy_symbol')
     quantity = config['quantity']
@@ -132,6 +143,7 @@ class StrategyVersions:
         return self._view(row)
 
     def _verify_research(self, cursor, config):
+        self._verify_backtest(cursor, config)
         reference = config.get(RESEARCH_REFERENCE)
         if reference is None:
             return
@@ -146,7 +158,20 @@ class StrategyVersions:
                 or not any(candidate['symbol'] == config['symbol'] for candidate in run['candidates'])):
             raise ValueError('strategy_research_unavailable')
 
+    def _verify_backtest(self, cursor, config):
+        if BACKTEST_REFERENCE in config:
+            from app.ashare.strategy_backtest_store import verify_reference
+
+            verify_reference(cursor, *self.key, config)
+
     def _funding(self, config, account):
+        if config['kind'] == 'sell_once_above':
+            floor = Decimal(config['limit_price']) * config['quantity']
+            floor += sum(self.broker._costs(floor, 'sell'))
+            return {'required_cash': Decimal('0'), 'available_cash': account['cash'] - account['reserved_cash'],
+                    'cap_sufficient': floor <= Decimal(config['max_cash']), 'cash_sufficient': True,
+                    'side': 'sell', 'sell_notional_floor': floor, 'budget_requires_reviewed_upper_band': True,
+                    'settled_shares_checked_at_submission': True}
         required = self.broker._buy_reserve(config['quantity'], Decimal(config['limit_price']))
         available = account['cash'] - account['reserved_cash']
         return {'required_cash': required, 'available_cash': available,
@@ -312,7 +337,9 @@ class StrategyVersions:
             if (not market_session(now)['can_match'] or not market_session(exchange_time)['can_match']
                     or exchange_time <= max(version['activated_at'], aware(reviewed['reviewed_at']))):
                 return None
-            if Decimal(quote['last']) > Decimal(config['threshold']):
+            side = 'sell' if config['kind'] == 'sell_once_above' else 'buy'
+            last, threshold = Decimal(quote['last']), Decimal(config['threshold'])
+            if (side == 'buy' and last > threshold) or (side == 'sell' and last < threshold):
                 return None
             price = Decimal(config['limit_price'])
             if not Decimal(reviewed['limit_down']) <= price <= Decimal(reviewed['limit_up']):
@@ -327,12 +354,14 @@ class StrategyVersions:
                 return None
             self._verify_research(cursor, config)
             order = self.broker._place_order_locked(
-                cursor, account, key, symbol, 'buy', config['quantity'], price, now,
+                cursor, account, key, symbol, side, config['quantity'], price, now,
                 now.astimezone(SHANGHAI).date(), max_cash=Decimal(config['max_cash']),
+                sell_upper_bound=Decimal(reviewed['limit_up']) if side == 'sell' else None,
             )
             self.broker._audit(cursor, 'approved_strategy_order_placed', {
                 'order_id': order['id'], 'version_id': version['id'], 'config_sha256': version['config_sha256'],
                 'activated_by': version['activated_by'], 'activated_at': version['activated_at'],
                 'quote_id': quote['quote_id'], 'exchange_time': exchange_time, 'evidence_sha256': quote['evidence_sha256'],
+                'side': side, 'max_cash': config['max_cash'], 'reviewed_limit_up': reviewed['limit_up'],
             })
             return order
