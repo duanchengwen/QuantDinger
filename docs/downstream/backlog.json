@@ -100,8 +100,8 @@
     },
     {
       "id": "feishu_delivery",
-      "status": "group_confirmed_setup_notice",
-      "acceptance": "Webhook is configured. The durable receipt release deployed locally on Nov18 at 16:12. Both existing reports retain their original content with no observed receipt. Future natural webhook acceptance and actual group display remain open. Cloud HTTPS and signed account configuration were verified on Nov18. No extra test or historical resend was triggered. Nov19 release shows local Asia/Shanghai event times in the concise review, operation and report messages. On Nov19 at 09:04, the configured signed webhook acknowledged a genuine template setup reminder. Actual group display and a real fill receipt are pending. No receipts were found for the Nov17 fill or old daily reports. The user confirmed group display of the 09:04 setup reminder. Historical fill receipts remain absent."
+      "status": "group_confirmed_setup_and_fill",
+      "acceptance": "The signed cloud webhook is configured and uses Asia/Shanghai event times. The user confirmed the Nov19 09:04 setup reminder and the 09:35 fill notice from the manual cloud paper trial. Each has a durable acknowledgement. The Nov17 fill and two historical reports have no observed delivery receipts. An actual strategy review card and natural daily report remain to be observed."
     },
     {
       "id": "calendar_2027",
@@ -146,12 +146,12 @@
     {
       "id": "backtested_automatic_paper_buy_sell",
       "status": "deployed_pending_natural_data_and_approval",
-      "acceptance": "Exact-version automatic buy/sell draft uses a fixed 60-session historical replay with 40-session holdout, data hashes, fees and settled positions. Controlled PostgreSQL rehearsals cover both sides and explicit independent approval and enable. A single real BaoStock probe timed out. Natural data, a genuine approved order and actual delivery remain to be observed. Cloud release 0a555ea verified account, UI, migration and preserved ledger. No account template was saved at verification."
+      "acceptance": "Exact-version automatic buy/sell draft uses a fixed 60-session historical replay with 40-session holdout, data hashes, fees and settled positions. Controlled PostgreSQL rehearsals cover both sides and explicit independent approval and enable. A single real BaoStock probe timed out. Natural data, a genuine automatically generated draft, its review card and approved automatic execution remain to be observed. Cloud release 0a555ea verified account, UI, migration and preserved ledger. The owner saved and enabled the proposal template on Nov19."
     },
     {
       "id": "feishu_trade_details",
-      "status": "deployed_pending_new_fill",
-      "acceptance": "Forward-only per-fill ID Feishu notices carry exact Shanghai time, side, quantity, price, notional and fee. Intent/result are durable and uncertain outcomes do not retry. Old fills and reports were not resent. Isolated tests cover both sides and daily-report coexistence. Cloud worker 90c1532 was verified healthy on Nov19 at 09:15 Asia/Shanghai. No new production fill or fill-notification receipt was observed."
+      "status": "group_confirmed_managed_fill",
+      "acceptance": "Forward-only per-fill ID Feishu notices carry exact Shanghai time, side, quantity, price, notional and fee. Intent/result are durable and uncertain outcomes do not retry. Old fills and reports were not resent. Isolated tests cover both sides and daily-report coexistence. Cloud worker 90c1532 matched the ordinary manual paper trial on Nov19 at 09:35 Asia/Shanghai, recorded one send intent and one acknowledged result against the same fill ID, and the user confirmed actual group display."
     }
   ]
 }
