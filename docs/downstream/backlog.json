@@ -140,8 +140,8 @@
     },
     {
       "id": "paper_action_reminders",
-      "status": "implemented_pending_live_action",
-      "acceptance": "One-shot scoped Feishu reminders for an approved version awaiting activation and qualifying intraday conditions awaiting human daily security review. Isolated database fixtures verified exact URLs, current evidence, receipt claiming and no retry after uncertain delivery. Genuine actions and Feishu group display remain pending."
+      "status": "deployed_pending_live_action",
+      "acceptance": "One-shot scoped Feishu reminders for an approved version awaiting activation and qualifying intraday conditions awaiting human daily security review. Isolated database fixtures verified exact URLs, current evidence, receipt claiming and no retry after uncertain delivery. Genuine actions and Feishu group display remain pending. Released to the cloud in ed6f281, and the safety flags and HTTPS 5188 origin were verified."
     }
   ]
 }
