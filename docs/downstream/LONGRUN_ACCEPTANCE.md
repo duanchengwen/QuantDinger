@@ -116,3 +116,7 @@ The user confirmed actual Feishu group display of the 09:04 setup reminder. New 
 At 09:15 the cloud paper worker was healthy on `90c1532`. Public HTTPS on 5188 and all four services passed health checks. The web and API containers stayed in place. A read-only ledger check found the same historical fill and zero new fill-notification events. Delivery for a new production paper fill is pending. The November 20 08:30 research timer was active.
 
 At 09:35, after the user completed the daily security review, one manual paper buy was submitted through the standard workspace API. Timestamped intraday data with a SHA-256 digest produced one fill, one Feishu send intent and one acknowledged receipt. The user confirmed seeing the fill details. The saved proposal template is enabled. Scheduled research, a historical-backtest proposal, delivery of its review card and automated execution after human approval and activation still require separate acceptance.
+
+## November 20 scheduled 08:30 research
+
+The scheduler recorded one run, `b64754c227204ec29a76282af13c3d59`, at 08:30:13 Asia/Shanghai. `deepseek-flash` completed at 08:32:02 and returned `sh.600905` and `sz.000875`. Neither matched the enabled template's watchlist scope. At 08:34:58 the proposal job recorded `no_eligible_template_match`, so it ran no symbol backtest and created no draft or review card. The research was unsubmitted for approval. Live trading and AI auto-promotion remained disabled. The first naturally generated backtested proposal and automatic fill after approval remain pending.

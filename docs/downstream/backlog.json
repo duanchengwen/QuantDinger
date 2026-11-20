@@ -146,7 +146,7 @@
     {
       "id": "backtested_automatic_paper_buy_sell",
       "status": "deployed_pending_natural_data_and_approval",
-      "acceptance": "Exact-version automatic buy/sell draft uses a fixed 60-session historical replay with 40-session holdout, data hashes, fees and settled positions. Controlled PostgreSQL rehearsals cover both sides and explicit independent approval and enable. A single real BaoStock probe timed out. Natural data, a genuine automatically generated draft, its review card and approved automatic execution remain to be observed. Cloud release 0a555ea verified account, UI, migration and preserved ledger. The owner saved and enabled the proposal template on Nov19."
+      "acceptance": "Exact-version automatic buy/sell draft uses a fixed 60-session historical replay with 40-session holdout, data hashes, fees and settled positions. Controlled PostgreSQL rehearsals cover both sides and explicit independent approval and enable. A single real BaoStock probe timed out. The owner saved and enabled the proposal template on Nov19. On Nov20 the scheduled research completed with two candidates outside the watchlist. The proposal job recorded no_eligible_template_match and ran no backtest. A naturally generated backtested draft, its review card and approved automatic execution remain pending."
     },
     {
       "id": "feishu_trade_details",
